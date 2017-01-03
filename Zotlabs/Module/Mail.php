@@ -60,7 +60,7 @@ class Mail extends \Zotlabs\Web\Controller {
 			if($j['permissions']['data']) {
 				$permissions = crypto_unencapsulate($j['permissions'],$channel['channel_prvkey']);
 				if($permissions)
-					$permissions = json_decode($permissions);
+					$permissions = json_decode($permissions, true);
 				logger('decrypted permissions: ' . print_r($permissions,true), LOGGER_DATA);
 			}
 			else
@@ -83,10 +83,24 @@ class Mail extends \Zotlabs\Web\Controller {
 		linkify_tags($a, $body, local_channel());
 	
 		if($preview) {
+			$mail = [
+				'mailbox' => 'outbox',
+				'id' => 0,
+				'mid' => 'M0',
+				'from_name' => $channel['xchan_name'],
+				'from_url' =>  $channel['xchan_url'],
+				'from_photo' => $channel['xchan_photo_s'],
+				'subject' => smilies(bbcode($subject)),
+				'body' => smilies(bbcode($body)),
+				'attachments' => '',
+				'can_recall' => false,
+				'is_recalled' => '',
+				'date' => datetime_convert('UTC',date_default_timezone_get(),$message['created'], 'c')
+			];
 			
-	
-	
-	
+			echo replace_macros(get_markup_template('mail_conv.tpl'), [ '$mail' => $mail ] );
+			killme();
+
 		}
 	
 		if(! $recipient) {
@@ -332,7 +346,7 @@ class Mail extends \Zotlabs\Web\Controller {
 				'delete' => t('Delete message'),
 				'dreport' => t('Delivery report'),
 				'recall' => t('Recall message'),
-				'can_recall' => (($channel['channel_hash'] == $message['from_xchan']) ? true : false),
+				'can_recall' => (($channel['channel_hash'] == $message['from_xchan'] && get_account_techlevel() > 0) ? true : false),
 				'is_recalled' => (intval($message['mail_recalled']) ? t('Message has been recalled.') : ''),
 				'date' => datetime_convert('UTC',date_default_timezone_get(),$message['created'], 'c'),
 			);

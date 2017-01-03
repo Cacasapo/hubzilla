@@ -7,7 +7,7 @@
 				<button type="button" class="btn btn-default btn-xs dropdown-toggle" data-toggle="dropdown">
 					<i class="fa fa-caret-down"></i>&nbsp;{{$tools_label}}
 				</button>
-				<ul class="dropdown-menu">
+				<ul class="dropdown-menu dropdown-menu-right">
 					{{if $tools}}
 					<li class="nav-item">
 						<a class="nav-link" href="{{$tools.profile.0}}"><i class="fa fa-user"></i>&nbsp;{{$tools.profile.1}}</a>
@@ -32,7 +32,7 @@
 			{{if $lock}}
 			<div class="btn-group">
 				<button id="lockview" class="btn btn-default btn-xs dropdown-toggle" data-toggle="dropdown" title="{{$lock}}" onclick="lockview('photo',{{$id}});" ><i class="fa fa-lock"></i></button>
-				<ul id="panel-{{$id}}" class="lockview-panel dropdown-menu"></ul>
+				<ul id="panel-{{$id}}" class="lockview-panel dropdown-menu dropdown-menu-right"></ul>
 			</div>
 			{{/if}}
 			{{if $prevlink || $nextlink}}
@@ -77,6 +77,9 @@
 			<div class="form-group">
 				<label id="photo-edit-tags-label" for="photo-edit-newtag">{{$edit.tag_label}}</label>
 				<input name="newtag" id="photo-edit-newtag" class="form-control" title="{{$edit.help_tags}}" type="text" />
+			</div>
+			<div class="form-group">
+				{{include file="field_select.tpl" field=$edit.album_select}}
 			</div>
 			<div class="form-group">
 				<label class="radio-inline" id="photo-edit-rotate-cw-label" for="photo-edit-rotate-cw"><input id="photo-edit-rotate-cw" type="radio" name="rotate" value="1" />{{$edit.rotatecw}}</label>

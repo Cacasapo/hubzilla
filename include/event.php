@@ -343,6 +343,13 @@ function event_store_event($arr) {
 		}
 	}
 
+	$hook_info = [ 'event' => $arr, 'existing_event' => $existing_event, 'cancel' => false ];
+	call_hooks('event_store_event',$hook_info);
+	if($hook_info['cancel'])
+		return false;
+
+	$arr = $hook_info['event'];
+	$existing_event = $hook_info['existing_event'];
 
 	if($existing_event) {
 
@@ -355,27 +362,28 @@ function event_store_event($arr) {
 
 		// The event changed. Update it.
 
-		$r = q("UPDATE `event` SET
-			`edited` = '%s',
-			`dtstart` = '%s',
-			`dtend` = '%s',
-			`summary` = '%s',
-			`description` = '%s',
-			`location` = '%s',
-			`etype` = '%s',
-			`adjust` = %d,
-			`nofinish` = %d,
-			`event_status` = '%s',
-			`event_status_date` = '%s',
-			`event_percent` = %d,
-			`event_repeat` = '%s',
-			`event_sequence` = %d,
-			`event_priority` = %d,
-			`allow_cid` = '%s',
-			`allow_gid` = '%s',
-			`deny_cid` = '%s',
-			`deny_gid` = '%s'
-			WHERE `id` = %d AND `uid` = %d",
+		$r = q("UPDATE event SET
+			edited = '%s',
+			dtstart = '%s',
+			dtend = '%s',
+			summary = '%s',
+			description = '%s',
+			location = '%s',
+			etype = '%s',
+			adjust = %d,
+			nofinish = %d,
+			event_status = '%s',
+			event_status_date = '%s',
+			event_percent = %d,
+			event_repeat = '%s',
+			event_sequence = %d,
+			event_priority = %d,
+			event_vdata = '%s',
+			allow_cid = '%s',
+			allow_gid = '%s',
+			deny_cid = '%s',
+			deny_gid = '%s'
+			WHERE id = %d AND uid = %d",
 
 			dbesc($arr['edited']),
 			dbesc($arr['dtstart']),
@@ -392,6 +400,7 @@ function event_store_event($arr) {
 			dbesc($arr['event_repeat']),
 			intval($arr['event_sequence']),
 			intval($arr['event_priority']),
+			dbesc($arr['event_vdata']),
 			dbesc($arr['allow_cid']),
 			dbesc($arr['allow_gid']),
 			dbesc($arr['deny_cid']),
@@ -412,8 +421,8 @@ function event_store_event($arr) {
 			$hash = random_string() . '@' . App::get_hostname();
 
 		$r = q("INSERT INTO event ( uid,aid,event_xchan,event_hash,created,edited,dtstart,dtend,summary,description,location,etype,
-			adjust,nofinish, event_status, event_status_date, event_percent, event_repeat, event_sequence, event_priority, allow_cid,allow_gid,deny_cid,deny_gid)
-			VALUES ( %d, %d, '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', %d, %d, '%s', '%s', %d, '%s', %d, %d, '%s', '%s', '%s', '%s' ) ",
+			adjust,nofinish, event_status, event_status_date, event_percent, event_repeat, event_sequence, event_priority, event_vdata, allow_cid,allow_gid,deny_cid,deny_gid)
+			VALUES ( %d, %d, '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', %d, %d, '%s', '%s', %d, '%s', %d, %d, '%s', '%s', '%s', '%s', '%s' ) ",
 			intval($arr['uid']),
 			intval($arr['account']),
 			dbesc($arr['event_xchan']),
@@ -434,6 +443,7 @@ function event_store_event($arr) {
 			dbesc($arr['event_repeat']),
 			intval($arr['event_sequence']),
 			intval($arr['event_priority']),
+			dbesc($arr['event_vdata']),
 			dbesc($arr['allow_cid']),
 			dbesc($arr['allow_gid']),
 			dbesc($arr['deny_cid']),

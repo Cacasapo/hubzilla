@@ -146,7 +146,7 @@ function localize_item(&$item){
 			case ACTIVITY_OBJ_NOTE:
 			default:
 				$post_type = t('status');
-				if($obj['mid'] != $obj['parent_mid'])
+				if($obj['id'] != $obj['parent'])
 					$post_type = t('comment');
 				break;
 		}
@@ -269,8 +269,8 @@ function localize_item(&$item){
 // (and update to json storage)
 
  	if (activity_match($item['verb'],ACTIVITY_TAG)) {
-		$r = q("SELECT * from `item`,`contact` WHERE 
-		`item`.`contact-id`=`contact`.`id` AND `item`.`mid`='%s';",
+		$r = q("SELECT * from item,contact WHERE 
+		item.contact-id=contact.id AND item.mid='%s';",
 		 dbesc($item['parent_mid']));
 		if(count($r)==0) return;
 		$obj=$r[0];
@@ -363,7 +363,7 @@ function localize_item(&$item){
 
 	if(intval($item['item_obscured'])
 		&& strlen($item['body']) && (! strpos($item['body'],'data'))) {
-		$item['body']  = json_encode(crypto_encapsulate($item['body'],get_config('system','pubkey')));
+		$item['body']  = z_obscure($item['body']);
 	}
 
 }
@@ -405,8 +405,6 @@ function count_descendants($item) {
 function visible_activity($item) {
 	$hidden_activities = [ ACTIVITY_LIKE, ACTIVITY_DISLIKE, ACTIVITY_AGREE, ACTIVITY_DISAGREE, ACTIVITY_ABSTAIN, ACTIVITY_ATTEND, ACTIVITY_ATTENDNO, ACTIVITY_ATTENDMAYBE ];
 
-	$post_types = [ ACTIVITY_OBJ_NOTE, ACTIVITY_OBJ_COMMENT, basename(ACTIVITY_OBJ_NOTE), basename(ACTIVITY_OBJ_COMMENT)]; 
-
 	if(intval($item['item_notshown']))
 		return false;
 
@@ -416,14 +414,32 @@ function visible_activity($item) {
 		}
 	}
 
+	if(is_edit_activity($item))
+		return false;
+
+	return true;
+}
+
+/**
+ * @brief Check if a given activity is an edit activity
+ * 
+ *
+ * @param array $item
+ * @return boolean
+ */
+
+function is_edit_activity($item) {
+
+	$post_types = [ ACTIVITY_OBJ_NOTE, ACTIVITY_OBJ_COMMENT, basename(ACTIVITY_OBJ_NOTE), basename(ACTIVITY_OBJ_COMMENT)]; 
+
 	// In order to share edits with networks which have no concept of editing, we'll create 
 	// separate activities to indicate the edit. Our network will not require them, since our
 	// edits are automatically applied and the activity indicated.  
 
 	if(($item['verb'] === ACTIVITY_UPDATE) && (in_array($item['obj_type'],$post_types)))
-		return false;
+		return true;
 
-	return true;
+	return false;
 }
 
 /**
@@ -456,22 +472,6 @@ function conversation(&$a, $items, $mode, $update, $page_mode = 'traditional', $
 
 	if (local_channel())
 		load_pconfig(local_channel(),'');
-
-	$arr_blocked = null;
-
-	if (local_channel())
-		$str_blocked = get_pconfig(local_channel(),'system','blocked');
-	if (! local_channel() && ($mode == 'network')) {
-		$sys = get_sys_channel();
-		$id = $sys['channel_id'];
- 		$str_blocked = get_pconfig($id,'system','blocked');
-	}
-
-	if ($str_blocked) {
-		$arr_blocked = explode(',',$str_blocked);
-		for ($x = 0; $x < count($arr_blocked); $x ++)
-			$arr_blocked[$x] = trim($arr_blocked[$x]);
-	}
 
 	$profile_owner   = 0;
 	$page_writeable  = false;
@@ -599,17 +599,13 @@ function conversation(&$a, $items, $mode, $update, $page_mode = 'traditional', $
 
 			foreach($items as $item) {
 
-				if($arr_blocked) {
-					$blocked = false;
-					foreach($arr_blocked as $b) {
-						if(($b) && (($item['author_xchan'] == $b) || ($item['owner_xchan'] == $b))) { 
-							$blocked = true;
-							break;
-						}
-					}
-					if($blocked)
-						continue;
-				}
+				$x = [ 'mode' => $mode, 'item' => $item ];
+				call_hooks('stream_item',$x);
+				
+				if($x['item']['blocked'])
+					continue;
+
+				$item = $x['item'];
 
 				$threadsid++;
 
@@ -712,10 +708,8 @@ function conversation(&$a, $items, $mode, $update, $page_mode = 'traditional', $
 					'forged' => $forged,
 					'txt_cats' => t('Categories:'),
 					'txt_folders' => t('Filed under:'),
-					'has_cats' => ((count($categories)) ? 'true' : ''),
-					'has_folders' => ((count($folders)) ? 'true' : ''),
-					'categories' => $categories,
-					'folders' => $folders,
+					'has_cats' => ((count($body['categories'])) ? 'true' : ''),
+					'has_folders' => ((count($body['folders'])) ? 'true' : ''),
 					'text' => strip_tags($body['html']),
 					'ago' => relative_date($item['created']),
 					'app' => $item['app'],
@@ -723,7 +717,7 @@ function conversation(&$a, $items, $mode, $update, $page_mode = 'traditional', $
 					'isotime' => datetime_convert('UTC', date_default_timezone_get(), $item['created'], 'c'),
 					'localtime' => datetime_convert('UTC', date_default_timezone_get(), $item['created'], 'r'),
 					'editedtime' => (($item['edited'] != $item['created']) ? sprintf( t('last edited: %s'), datetime_convert('UTC', date_default_timezone_get(), $item['edited'], 'r')) : ''),
-					'expiretime' => (($item['expires'] !== NULL_DATE) ? sprintf( t('Expires: %s'), datetime_convert('UTC', date_default_timezone_get(), $item['expires'], 'r')):''),
+					'expiretime' => (($item['expires'] > NULL_DATE) ? sprintf( t('Expires: %s'), datetime_convert('UTC', date_default_timezone_get(), $item['expires'], 'r')):''),
 					'location' => $location,
 					'indent' => '',
 					'owner_name' => $owner_name,
@@ -773,28 +767,14 @@ function conversation(&$a, $items, $mode, $update, $page_mode = 'traditional', $
 
 				// Check for any blocked authors
 
-				if($arr_blocked) {
-					$blocked = false;
-					foreach($arr_blocked as $b) {
-						if(($b) && ($item['author_xchan'] == $b)) {
-							$blocked = true;
-							break;
-						}
-					}
-					if($blocked)
-						continue;
-				}
 
-				// Check all the kids too
+				$x = [ 'mode' => $mode, 'item' => $item ];
+				call_hooks('stream_item',$x);
+				
+				if($x['item']['blocked'])
+					continue;
 
-				if($arr_blocked && $item['children']) {
-					for($d = 0; $d < count($item['children']); $d ++) {
-						foreach($arr_blocked as $b) {
-							if(($b) && ($item['children'][$d]['author_xchan'] == $b))
-								$item['children'][$d]['author_blocked'] = true;
-						}
-					}
-				}
+				$item = $x['item'];
 
 				builtin_activity_puller($item, $conv_responses);
 
@@ -941,12 +921,9 @@ function item_photo_menu($item){
 		$clean_url = normalise_link($item['author-link']);
 	}
 
-	$poco_rating = get_config('system','poco_rating_enable');
-	// if unset default to enabled
-	if($poco_rating === false)
-		$poco_rating = true;
+	$rating_enabled = get_config('system','rating_enabled');
 
-	$ratings_url = (($poco_rating) ? z_root() . '/ratings/' . urlencode($item['author_xchan']) : '');
+	$ratings_url = (($rating_enabled) ? z_root() . '/ratings/' . urlencode($item['author_xchan']) : '');
 
 	$post_menu = Array(
 		t("View Source") => $vsrc_link,
@@ -1056,6 +1033,9 @@ function builtin_activity_puller($item, &$conv_responses) {
 				$conv_responses[$mode][$item['thr_parent']] ++;
 
 			$conv_responses[$mode][$item['thr_parent'] . '-l'][] = $url;
+			if(get_observer_hash() && get_observer_hash() === $item['author_xchan']) {
+				$conv_responses[$mode][$item['thr_parent'] . '-m'] = true;
+			}
 
 			// there can only be one activity verb per item so if we found anything, we can stop looking
 			return;
@@ -1121,6 +1101,10 @@ function status_editor($a, $x, $popup = false) {
 	$feature_voting = feature_enabled($x['profile_uid'], 'consensus_tools');
 	if(x($x, 'hide_voting'))
 		$feature_voting = false;
+	
+	$feature_nocomment = feature_enabled($x['profile_uid'], 'disable_comments');
+	if(x($x, 'disable_comments'))
+		$feature_nocomment = false;
 
 	$feature_expire = ((feature_enabled($x['profile_uid'], 'content_expire') && (! $webpage)) ? true : false);
 	if(x($x, 'hide_expire'))
@@ -1190,11 +1174,11 @@ function status_editor($a, $x, $popup = false) {
 		'$modalerrorlist' => t('Error getting album list'),
 		'$modalerrorlink' => t('Error getting photo link'),
 		'$modalerroralbum' => t('Error getting album'),
+		'$nocomment_enabled' => t('Comments enabled'),
+		'$nocomment_disabled' => t('Comments disabled'),
 	));
 
 	$tpl = get_markup_template('jot.tpl');
-
-	$jotplugins = '';
 
 	$preview = t('Preview');
 	if(x($x, 'hide_preview'))
@@ -1212,7 +1196,17 @@ function status_editor($a, $x, $popup = false) {
 	if(! $cipher)
 		$cipher = 'aes256';
 
+	// avoid illegal offset errors
+	if(! array_key_exists('permissions',$x)) 
+		$x['permissions'] = [ 'allow_cid' => '', 'allow_gid' => '', 'deny_cid' => '', 'deny_gid' => '' ];
+
+	$jotplugins = '';
 	call_hooks('jot_tool', $jotplugins);
+
+	$jotnets = '';
+	if(x($x,'jotnets')) {
+		call_hooks('jot_networks', $jotnets);
+	}
 
 	$o .= replace_macros($tpl, array(
 		'$return_path' => ((x($x, 'return_path')) ? $x['return_path'] : App::$query_string),
@@ -1239,6 +1233,10 @@ function status_editor($a, $x, $popup = false) {
 		'$voting' => t('Toggle voting'),
 		'$feature_voting' => $feature_voting,
 		'$consensus' => 0,
+		'$nocommenttitle' => t('Disable comments'),
+		'$nocommenttitlesub' => t('Toggle comments'),
+		'$feature_nocomment' => $feature_nocomment,
+		'$nocomment' => 0,
 		'$clearloc' => $clearloc,
 		'$title' => ((x($x, 'title')) ? htmlspecialchars($x['title'], ENT_COMPAT,'UTF-8') : ''),
 		'$placeholdertitle' => ((x($x, 'placeholdertitle')) ? $x['placeholdertitle'] : t('Title (optional)')),
@@ -1266,6 +1264,8 @@ function status_editor($a, $x, $popup = false) {
 		'$preview' => $preview,
 		'$source' => ((x($x, 'source')) ? $x['source'] : ''),
 		'$jotplugins' => $jotplugins,
+		'$jotnets' => $jotnets,
+		'$jotnets_label' => t('Other networks and post services'),
 		'$defexpire' => $defexpire,
 		'$feature_expire' => $feature_expire,
 		'$expires' => t('Set expiration date'),
@@ -1278,7 +1278,8 @@ function status_editor($a, $x, $popup = false) {
 		'$expiryModalOK' => t('OK'),
 		'$expiryModalCANCEL' => t('Cancel'),
 		'$expanded' => ((x($x, 'expanded')) ? $x['expanded'] : false),
-		'$bbcode' => ((x($x, 'bbcode')) ? $x['bbcode'] : false)
+		'$bbcode' => ((x($x, 'bbcode')) ? $x['bbcode'] : false),
+		'$parent' => ((array_key_exists('parent',$x) && $x['parent']) ? $x['parent'] : 0)
 	));
 
 	if ($popup === true) {
@@ -1518,7 +1519,11 @@ function network_tabs() {
 	// tabs
 	$tabs = array();
 
-	if(! get_config('system','disable_discover_tab')) {
+	$d = get_config('system','disable_discover_tab');
+	if($d === false)
+		$d = 1;
+
+	if(! $d) {
 		$tabs[] = array(
 			'label' => t('Discover'),
 			'url' => z_root() . '/' . $cmd . '?f=&fh=1' ,
@@ -1608,6 +1613,7 @@ function profile_tabs($a, $is_owner = false, $nickname = null){
 
 
 	$uid = ((App::$profile['profile_uid']) ? App::$profile['profile_uid'] : local_channel());
+	$account_id = ((App::$profile['profile_uid']) ? App::$profile['channel_account_id'] : App::$channel['channel_account_id']);
 
 	if($uid == local_channel()) {
 		$cal_link = '';
@@ -1710,9 +1716,9 @@ function profile_tabs($a, $is_owner = false, $nickname = null){
 		);
 	} 
 
-	if(feature_enabled($uid,'wiki') && (get_config('system','server_role') !== 'basic')) {
+	if(feature_enabled($uid,'wiki') && (get_account_techlevel($account_id) > 3)) {
 		$tabs[] = array(
-			'label' => t('Wiki'),
+			'label' => t('Wikis'),
 			'url'   => z_root() . '/wiki/' . $nickname,
 			'sel'   => ((argv(0) == 'wiki') ? 'active' : ''),
 			'title' => t('Wiki'),

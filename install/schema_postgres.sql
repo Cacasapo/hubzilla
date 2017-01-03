@@ -396,7 +396,7 @@ create index "conv_created_idx" on conv ("created");
 create index "conv_updated_idx" on conv ("updated");
 
 CREATE TABLE IF NOT EXISTS "dreport" (
-  "dreport_id" int NOT NULL,
+  "dreport_id" serial NOT NULL,
   "dreport_channel" int NOT NULL DEFAULT '0',
   "dreport_mid" char(255) NOT NULL DEFAULT '',
   "dreport_site" char(255) NOT NULL DEFAULT '',
@@ -492,13 +492,15 @@ CREATE TABLE "hook" (
   "hook" text NOT NULL,
   "file" text NOT NULL,
   "fn" text NOT NULL,
-  "priority" bigint  NOT NULL DEFAULT '0',
+  "priority" smallint  NOT NULL DEFAULT '0',
   "hook_version" smallint NOT NULL DEFAULT '0',
   PRIMARY KEY ("id")
 
 );
 create index "hook_idx" on hook ("hook");
 create index "hook_version_idx" on hook ("hook_version");
+create index "hook_priority_idx" on hook ("priority");
+
 CREATE TABLE "hubloc" (
   "hubloc_id" serial  NOT NULL,
   "hubloc_guid" text NOT NULL DEFAULT '',
@@ -1131,6 +1133,8 @@ CREATE TABLE "site" (
   "site_dead" smallint NOT NULL DEFAULT '0',
   "site_type" smallint NOT NULL DEFAULT '0',
   "site_project" text NOT NULL DEFAULT '',
+  "site_version" text NOT NULL DEFAULT '',
+  "site_crypto" text NOT NULL DEFAULT '',
   PRIMARY KEY ("site_url")
 );
 create index "site_flags" on site ("site_flags");

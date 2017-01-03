@@ -70,7 +70,19 @@ class Enotify {
 		$hostname = substr($hostname,0,strpos($hostname,':'));
 
 		// Do not translate 'noreply' as it must be a legal 7-bit email address
-		$sender_email = 'noreply' . '@' . $hostname;
+
+		$reply_email = get_config('system','reply_address');
+		if(! $reply_email)
+			$reply_email = 'noreply' . '@' . $hostname;
+
+		$sender_email = get_config('system','from_email');
+		if(! $sender_email)
+			$sender_email = 'Administrator' . '@' . \App::get_hostname();
+	
+		$sender_name = get_config('system','from_email_name');
+		if(! $sender_name)
+			$sender_name = \Zotlabs\Lib\System::get_site_name();
+
 
 		$additional_mail_header = "";
 
@@ -90,6 +102,10 @@ class Enotify {
 				$title = $params['item']['title'];
 				$body = $params['item']['body'];
 			}
+			if($params['item']['created'] < datetime_convert('UTC','UTC','now - 1 month')) {
+				logger('notification invoked for an old item which may have been refetched.',LOGGER_DEBUG,LOG_INFO);
+				return;
+			}
 		} 
 		else {
 			$title = $body = '';
@@ -101,7 +117,7 @@ class Enotify {
 
 	if ($params['type'] == NOTIFY_MAIL) {
 		logger('notification: mail');
-		$subject = 	sprintf( t('[Hubzilla:Notify] New mail received at %s'),$sitename);
+		$subject = 	sprintf( t('[$Projectname:Notify] New mail received at %s'),$sitename);
 
 		$preamble = sprintf( t('%1$s, %2$s sent you a new private message at %3$s.'),$recip['channel_name'], $sender['xchan_name'],$sitename);
 		$epreamble = sprintf( t('%1$s sent you %2$s.'),'[zrl=' . $sender['xchan_url'] . ']' . $sender['xchan_name'] . '[/zrl]', '[zrl=$itemlink]' . t('a private message') . '[/zrl]');
@@ -116,10 +132,13 @@ class Enotify {
 
 		$itemlink =  $params['link'];
 
-		// ignore like/unlike activity on posts - they probably require a sepearate notification preference
+		// ignore like/unlike activity on posts - they probably require a separate notification preference
 
-		if (array_key_exists('item',$params) && (! visible_activity($params['item'])))
+		if (array_key_exists('item',$params) && (! visible_activity($params['item']))) {
+			logger('notification: not a visible activity. Ignoring.');
+			pop_lang();
 			return;
+		}
 
 		$parent_mid = $params['parent_mid'];
 
@@ -189,7 +208,7 @@ class Enotify {
 		// Before this we have the name of the replier on the subject rendering 
 		// differents subjects for messages on the same thread.
 
-		$subject = sprintf( t('[Hubzilla:Notify] Comment to conversation #%1$d by %2$s'), $parent_id, $sender['xchan_name']);
+		$subject = sprintf( t('[$Projectname:Notify] Comment to conversation #%1$d by %2$s'), $parent_id, $sender['xchan_name']);
 		$preamble = sprintf( t('%1$s, %2$s commented on an item/conversation you have been following.'), $recip['channel_name'], $sender['xchan_name']); 
 		$epreamble = $dest_str; 
 
@@ -198,8 +217,87 @@ class Enotify {
 		$hsitelink = sprintf( $sitelink, '<a href="' . $siteurl . '">' . $sitename . '</a>');
 	}
 
+	if ($params['type'] == NOTIFY_LIKE) {
+//		logger("notification: params = " . print_r($params, true), LOGGER_DEBUG);
+
+		$itemlink =  $params['link'];
+
+		// ignore like/unlike activity on posts - they probably require a separate notification preference
+
+		if (array_key_exists('item',$params) && (! activity_match($params['item']['verb'],ACTIVITY_LIKE))) {
+			logger('notification: not a like activity. Ignoring.');
+			pop_lang();
+			return;
+		}
+
+		$parent_mid = $params['parent_mid'];
+
+		// Check to see if there was already a notify for this post.
+		// If so don't create a second notification
+
+		$p = null;
+		$p = q("select id from notify where link = '%s' and uid = %d limit 1",
+			dbesc($params['link']),
+			intval($recip['channel_id'])
+		);
+		if ($p) {
+			logger('notification: like already notified');
+			pop_lang();
+			return;
+		}
+	
+
+		// if it's a post figure out who's post it is.
+
+		$p = null;
+
+		if($params['otype'] === 'item' && $parent_mid) {
+			$p = q("select * from item where mid = '%s' and uid = %d limit 1",
+				dbesc($parent_mid),
+				intval($recip['channel_id'])
+			);
+		}
+
+		xchan_query($p);
+
+
+		$item_post_type = item_post_type($p[0]);
+//		$private = $p[0]['item_private'];
+		$parent_id = $p[0]['id'];
+
+		$parent_item = $p[0];
+
+
+		// "your post"
+		if($p[0]['owner']['xchan_name'] == $p[0]['author']['xchan_name'] && intval($p[0]['item_wall']))
+			$dest_str = sprintf(t('%1$s, %2$s liked [zrl=%3$s]your %4$s[/zrl]'),
+				$recip['channel_name'],
+				'[zrl=' . $sender['xchan_url'] . ']' . $sender['xchan_name'] . '[/zrl]',
+				$itemlink,
+				$item_post_type);
+		else {
+			pop_lang();
+			return;
+		}
+
+		// Some mail softwares relies on subject field for threading.
+		// So, we cannot have different subjects for notifications of the same thread.
+		// Before this we have the name of the replier on the subject rendering 
+		// differents subjects for messages on the same thread.
+
+		$subject = sprintf( t('[$Projectname:Notify] Like received to conversation #%1$d by %2$s'), $parent_id, $sender['xchan_name']);
+		$preamble = sprintf( t('%1$s, %2$s liked an item/conversation you created.'), $recip['channel_name'], $sender['xchan_name']); 
+		$epreamble = $dest_str; 
+
+		$sitelink = t('Please visit %s to view and/or reply to the conversation.');
+		$tsitelink = sprintf( $sitelink, $siteurl );
+		$hsitelink = sprintf( $sitelink, '<a href="' . $siteurl . '">' . $sitename . '</a>');
+	}
+
+
+
 	if($params['type'] == NOTIFY_WALL) {
-		$subject = sprintf( t('[Hubzilla:Notify] %s posted to your profile wall') , $sender['xchan_name']);
+		$subject = sprintf( t('[$Projectname:Notify] %s posted to your profile wall') , $sender['xchan_name']);
 
 		$preamble = sprintf( t('%1$s, %2$s posted to your profile wall at %3$s') , $recip['channel_name'], $sender['xchan_name'], $sitename);
 
@@ -227,7 +325,7 @@ class Enotify {
 			return;
 		}
 	
-		$subject =	sprintf( t('[Hubzilla:Notify] %s tagged you') , $sender['xchan_name']);
+		$subject =	sprintf( t('[$Projectname:Notify] %s tagged you') , $sender['xchan_name']);
 		$preamble = sprintf( t('%1$s, %2$s tagged you at %3$s') , $recip['channel_name'], $sender['xchan_name'], $sitename);
 		$epreamble = sprintf( t('%1$s, %2$s [zrl=%3$s]tagged you[/zrl].') ,
 			$recip['channel_name'],
@@ -241,7 +339,7 @@ class Enotify {
 	}
 
 	if ($params['type'] == NOTIFY_POKE) {
-		$subject =	sprintf( t('[Hubzilla:Notify] %1$s poked you') , $sender['xchan_name']);
+		$subject =	sprintf( t('[$Projectname:Notify] %1$s poked you') , $sender['xchan_name']);
 		$preamble = sprintf( t('%1$s, %2$s poked you at %3$s') , $recip['channel_name'], $sender['xchan_name'], $sitename);
 		$epreamble = sprintf( t('%1$s, %2$s [zrl=%2$s]poked you[/zrl].') ,
 			$recip['channel_name'], 
@@ -259,7 +357,7 @@ class Enotify {
 	}
 
 	if ($params['type'] == NOTIFY_TAGSHARE) {
-		$subject =	sprintf( t('[Hubzilla:Notify] %s tagged your post') , $sender['xchan_name']);
+		$subject =	sprintf( t('[$Projectname:Notify] %s tagged your post') , $sender['xchan_name']);
 		$preamble = sprintf( t('%1$s, %2$s tagged your post at %3$s') , $recip['channel_name'],$sender['xchan_name'], $sitename);
 		$epreamble = sprintf( t('%1$s, %2$s tagged [zrl=%3$s]your post[/zrl]') ,
 			$recip['channel_name'],
@@ -273,7 +371,7 @@ class Enotify {
 	}
 
 	if ($params['type'] == NOTIFY_INTRO) {
-		$subject = sprintf( t('[Hubzilla:Notify] Introduction received'));
+		$subject = sprintf( t('[$Projectname:Notify] Introduction received'));
 		$preamble = sprintf( t('%1$s, you\'ve received an new connection request from \'%2$s\' at %3$s'), $recip['channel_name'], $sender['xchan_name'], $sitename); 
 		$epreamble = sprintf( t('%1$s, you\'ve received [zrl=%2$s]a new connection request[/zrl] from %3$s.'),
 			$recip['channel_name'],
@@ -288,7 +386,7 @@ class Enotify {
 	}
 
 	if ($params['type'] == NOTIFY_SUGGEST) {
-		$subject = sprintf( t('[Hubzilla:Notify] Friend suggestion received'));
+		$subject = sprintf( t('[$Projectname:Notify] Friend suggestion received'));
 		$preamble = sprintf( t('%1$s, you\'ve received a friend suggestion from \'%2$s\' at %3$s'), $recip['channel_name'], $sender['xchan_name'], $sitename); 
 		$epreamble = sprintf( t('%1$s, you\'ve received [zrl=%2$s]a friend suggestion[/zrl] for %3$s from %4$s.'),
 			$recip['channel_name'],
@@ -346,7 +444,7 @@ class Enotify {
 	do {
 		$dups = false;
 		$hash = random_string();
-		$r = q("SELECT `id` FROM `notify` WHERE `hash` = '%s' LIMIT 1",
+		$r = q("SELECT id FROM notify WHERE hash = '%s' LIMIT 1",
 			dbesc($hash));
 		if ($r)
 			$dups = true;
@@ -386,8 +484,11 @@ class Enotify {
 	// Mark some notifications as seen right away
 	// Note! The notification have to be created, because they are used to send emails
 	// So easiest solution to hide them from Notices is to mark them as seen right away.
-	// Another option would be to not add them to the DB, and change how emails are handled (probably would be better that way)
+	// Another option would be to not add them to the DB, and change how emails are handled 
+	// (probably would be better that way)
+
 	$always_show_in_notices = get_pconfig($recip['channel_id'],'system','always_show_in_notices');
+
 	if (!$always_show_in_notices) {
 		if (($params['type'] == NOTIFY_WALL) || ($params['type'] == NOTIFY_MAIL) || ($params['type'] == NOTIFY_INTRO)) {
 			$seen = 1;
@@ -459,7 +560,7 @@ class Enotify {
 		// use $_SESSION['zid_override'] to force zid() to use 
 		// the recipient address instead of the current observer
 
-		$_SESSION['zid_override'] = $recip['channel_address'] . '@' . \App::get_hostname();
+		$_SESSION['zid_override'] = channel_reddress($recip);
 		$_SESSION['zrl_override'] = z_root() . '/channel/' . $recip['channel_address'];
 		
 		$textversion = zidify_links($textversion);
@@ -515,7 +616,7 @@ class Enotify {
 					$private_activity = true;
 				case NOTIFY_MAIL:
 					$datarray['textversion'] = $datarray['htmlversion'] = $datarray['title'] = '';
-					$datarray['subject'] = preg_replace('/' . preg_quote(t('[Hubzilla:Notify]')) . '/','$0*',$datarray['subject']);
+					$datarray['subject'] = preg_replace('/' . preg_quote(t('[$Projectname:Notify]')) . '/','$0*',$datarray['subject']);
 					break;
 				default:
 					break;
@@ -577,7 +678,7 @@ class Enotify {
 		self::send(array(
 			'fromName'             => $sender_name,
 			'fromEmail'            => $sender_email,
-			'replyTo'              => $sender_email,
+			'replyTo'              => $reply_email,
 			'toEmail'              => $recip['account_email'],
 			'messageSubject'       => $datarray['subject'],
 			'htmlVersion'          => $email_html_body,
@@ -605,6 +706,16 @@ class Enotify {
 	 *  * \e string \b additionalMailHeader  additions to the smtp mail header
 	 */
 	static public function send($params) {
+
+		$params['sent']   = false;
+		$params['result'] = false;
+
+		call_hooks('email_send', $params);
+
+		if($params['sent']) {
+			logger("notification: enotify::send (addon) returns " . (($params['result']) ? 'success' : 'failure'), LOGGER_DEBUG);
+			return $params['result'];
+		}
 
 		$fromName = email_header_encode(html_entity_decode($params['fromName'],ENT_QUOTES,'UTF-8'),'UTF-8'); 
 		$messageSubject = email_header_encode(html_entity_decode($params['messageSubject'],ENT_QUOTES,'UTF-8'),'UTF-8');
@@ -645,7 +756,8 @@ class Enotify {
 			$multipartMessageBody,							// message body
 			$messageHeader									// message headers
 		);
-		logger("notification: enotify::send returns " . $res, LOGGER_DEBUG);
+		logger("notification: enotify::send returns " . (($res) ? 'success' : 'failure'), LOGGER_DEBUG);
+		return $res;
 	}
 
 	static public function format($item) {
@@ -654,12 +766,12 @@ class Enotify {
 
 		require_once('include/conversation.php');
 
-		// Call localize_item with the "brief" flag to get a one line status for activities. 
+		// Call localize_item to get a one line status for activities. 
 		// This should set $item['localized'] to indicate we have a brief summary.
 
 		localize_item($item);
 
-		if($item_localize) {
+		if($item['localize']) {
 			$itemem_text = $item['localize'];
 		}
 		else {
@@ -671,7 +783,7 @@ class Enotify {
 		// convert this logic into a json array just like the system notifications
 
 		return array(
-			'notify_link' => $item['llink'], 
+			'notify_link' => $item['llink'],
 			'name' => $item['author']['xchan_name'],
 			'url' => $item['author']['xchan_url'],
 			'photo' => $item['author']['xchan_photo_s'],

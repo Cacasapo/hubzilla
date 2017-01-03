@@ -82,18 +82,11 @@ function import_channel($channel, $account_id, $seize) {
 	}
 
 	if($clean) {
-		dbesc_array($clean);
-
-		$r = dbq("INSERT INTO channel (`" 
-			. implode("`, `", array_keys($clean)) 
-			. "`) VALUES ('" 
-			. implode("', '", array_values($clean)) 
-			. "')" 
-		);
+		create_table_from_array('channel',$clean);
 	}
 
 	if(! $r) {
-		logger('mod_import: channel clone failed. ', print_r($channel,true));
+		logger('mod_import: channel clone failed. ' . print_r($channel,true));
 		notice( t('Channel clone failed. Import failed.') . EOL);
 		return false;
 	}
@@ -103,7 +96,7 @@ function import_channel($channel, $account_id, $seize) {
 		$channel['channel_guid']   // Already dbesc'd
 	);
 	if(! $r) {
-		logger('mod_import: channel not found. ', print_r($channel,true));
+		logger('mod_import: channel not found. ' . print_r($channel,true));
 		notice( t('Cloned channel not found. Import failed.') . EOL);
 		return false;
 	}
@@ -131,12 +124,7 @@ function import_config($channel,$configs) {
 		foreach($configs as $config) {
 			unset($config['id']);
 			$config['uid'] = $channel['channel_id'];
-			dbesc_array($config);
-			$r = dbq("INSERT INTO pconfig (`" 
-				. implode("`, `", array_keys($config)) 
-				. "`) VALUES ('" 
-				. implode("', '", array_values($config)) 
-				. "')" );
+			create_table_from_array('pconfig',$config);
 		}
 		load_pconfig($channel['channel_id']);
 	}	
@@ -150,6 +138,7 @@ function import_profiles($channel,$profiles) {
 			unset($profile['id']);
 			$profile['aid'] = get_account_id();
 			$profile['uid'] = $channel['channel_id'];
+			unset($profile['profile_vcard']);
 
 			convert_oldfields($profile,'name','fullname');
 			convert_oldfields($profile,'with','partner');
@@ -161,14 +150,7 @@ function import_profiles($channel,$profiles) {
 	
 			$profile['photo'] = z_root() . '/photo/profile/l/' . $channel['channel_id'];
 			$profile['thumb'] = z_root() . '/photo/profile/m/' . $channel['channel_id'];
-
-			dbesc_array($profile);
-			$r = dbq("INSERT INTO profile (`" 
-				. implode("`, `", array_keys($profile)) 
-				. "`) VALUES ('" 
-				. implode("', '", array_values($profile)) 
-				. "')" 
-			);
+			create_table_from_array('profile',$profile);
 		}
 	}
 }
@@ -203,14 +185,7 @@ function import_hublocs($channel,$hublocs,$seize) {
 
 			if(! zot_gethub($arr)) {				
 				unset($hubloc['hubloc_id']);
-				dbesc_array($hubloc);
-		
-				$r = dbq("INSERT INTO hubloc (`" 
-					. implode("`, `", array_keys($hubloc)) 
-					. "`) VALUES ('" 
-					. implode("', '", array_values($hubloc)) 
-					. "')" 
-				);
+				create_table_from_array('hubloc',$hubloc);
 			}
 		}
 	}
@@ -242,14 +217,7 @@ function import_objs($channel,$objs) {
 				$obj['obj_imgurl'] = $x[0];
 			}
 
-			dbesc_array($obj);
-
-			$r = dbq("INSERT INTO obj (`" 
-				. implode("`, `", array_keys($obj)) 
-				. "`) VALUES ('" 
-				. implode("', '", array_values($obj)) 
-				. "')" 
-			);
+			create_table_from_array('obj',$obj);
 		}
 	}
 }
@@ -260,7 +228,7 @@ function sync_objs($channel,$objs) {
 		foreach($objs as $obj) {
 
 			if(array_key_exists('obj_deleted',$obj) && $obj['obj_deleted'] && $obj['obj_obj']) {
-				q("delete from obj where obj_obj = '%s' and obj_channel = %d limit 1",
+				q("delete from obj where obj_obj = '%s' and obj_channel = %d",
 					dbesc($obj['obj_obj']),
 					intval($channel['channel_id'])
 				);
@@ -304,7 +272,7 @@ function sync_objs($channel,$objs) {
 			if($exists) {
 				unset($obj['obj_obj']);
 				foreach($obj as $k => $v) {
-					$r = q("UPDATE obj SET `%s` = '%s' WHERE obj_obj = '%s' AND obj_channel = %d",
+					$r = q("UPDATE obj SET " . TQUOT . "%s" . TQUOT . " = '%s' WHERE obj_obj = '%s' AND obj_channel = %d",
 						dbesc($k),
 						dbesc($v),
 						dbesc($hash),
@@ -313,15 +281,7 @@ function sync_objs($channel,$objs) {
 				}
 			}
 			else {						
-
-				dbesc_array($obj);
-
-				$r = dbq("INSERT INTO obj (`" 
-					. implode("`, `", array_keys($obj)) 
-					. "`) VALUES ('" 
-					. implode("', '", array_values($obj)) 
-					. "')" 
-				);
+				create_table_from_array('obj',$obj);
 			}
 		}
 	}
@@ -351,13 +311,7 @@ function import_apps($channel,$apps) {
 
 			$hash = $app['app_id'];
 
-			dbesc_array($app);
-			$r = dbq("INSERT INTO app (`" 
-				. implode("`, `", array_keys($app)) 
-				. "`) VALUES ('" 
-				. implode("', '", array_values($app)) 
-				. "')" 
-			);
+			create_table_from_array('app',$app);
 
 			if($term) {
 				$x = q("select * from app where app_id = '%s' and app_channel = %d limit 1",
@@ -398,7 +352,7 @@ function sync_apps($channel,$apps) {
 			}
 			
 			if(array_key_exists('app_deleted',$app) && $app['app_deleted'] && $app['app_id']) {
-                q("delete from app where app_id = '%s' and app_channel = %d limit 1",
+                q("delete from app where app_id = '%s' and app_channel = %d",
                     dbesc($app['app_id']),
                     intval($channel['channel_id'])
                 );
@@ -422,9 +376,9 @@ function sync_apps($channel,$apps) {
             	);
 			}
 
-			if(! $app['app_created'] || $app['app_created'] === NULL_DATE)
+			if((! $app['app_created']) || ($app['app_created'] <= NULL_DATE))
 				$app['app_created'] = datetime_convert();
-			if(! $app['app_edited'] || $app['app_edited'] === NULL_DATE)
+			if((! $app['app_edited']) || ($app['app_edited'] <= NULL_DATE))
 				$app['app_edited'] = datetime_convert();
 
 			$app['app_channel'] = $channel['channel_id'];
@@ -451,7 +405,7 @@ function sync_apps($channel,$apps) {
 			if($exists) {
 				unset($app['app_id']);
 				foreach($app as $k => $v) {
-					$r = q("UPDATE app SET `%s` = '%s' WHERE app_id = '%s' AND app_channel = %d",
+					$r = q("UPDATE app SET " . TQUOT . "%s" . TQUOT . " = '%s' WHERE app_id = '%s' AND app_channel = %d",
 						dbesc($k),
 						dbesc($v),
 						dbesc($hash),
@@ -460,15 +414,10 @@ function sync_apps($channel,$apps) {
 				}
 			}
 			else {
-				dbesc_array($app);
-				$r = dbq("INSERT INTO app (`" 
-					. implode("`, `", array_keys($app)) 
-					. "`) VALUES ('" 
-					. implode("', '", array_values($app)) 
-					. "')" 
-				);
+				create_table_from_array('app',$app);
+
 				if($term) {
-					$x = q("select * from app where app_id = '%s' and app_channel = %d limit 1",
+					$x = q("select * from app where app_id = '%s' and app_channel = %d",
 						dbesc($hash),
 						intval($channel['channel_id'])
 					);
@@ -502,13 +451,7 @@ function import_chatrooms($channel,$chatrooms) {
 			$chatroom['cr_aid'] = $channel['channel_account_id'];
 			$chatroom['cr_uid'] = $channel['channel_id'];
 
-			dbesc_array($chatroom);
-			$r = dbq("INSERT INTO chatroom (`" 
-				. implode("`, `", array_keys($chatroom)) 
-				. "`) VALUES ('" 
-				. implode("', '", array_values($chatroom)) 
-				. "')" 
-			);
+			create_table_from_array('chatroom',$chatroom);
 		}
 	}
 }
@@ -524,7 +467,7 @@ function sync_chatrooms($channel,$chatrooms) {
 				continue;
 
 			if(array_key_exists('cr_deleted',$chatroom) && $chatroom['cr_deleted']) {
-                q("delete from chatroom where cr_name = '%s' and cr_uid = %d limit 1",
+                q("delete from chatroom where cr_name = '%s' and cr_uid = %d",
                     dbesc($chatroom['cr_name']),
                     intval($channel['channel_id'])
                 );
@@ -536,9 +479,9 @@ function sync_chatrooms($channel,$chatrooms) {
 			unset($chatroom['cr_aid']);
 			unset($chatroom['cr_uid']);
 
-			if(! $chatroom['cr_created'] || $chatroom['cr_created'] === NULL_DATE)
+			if((! $chatroom['cr_created']) || ($chatroom['cr_created'] <= NULL_DATE))
 				$chatroom['cr_created'] = datetime_convert();
-			if(! $chatroom['cr_edited'] || $chatroom['cr_edited'] === NULL_DATE)
+			if((! $chatroom['cr_edited']) || ($chatroom['cr_edited'] <= NULL_DATE))
 				$chatroom['cr_edited'] = datetime_convert();
 
 			$chatroom['cr_aid'] = $channel['channel_account_id'];
@@ -559,7 +502,7 @@ function sync_chatrooms($channel,$chatrooms) {
 
 			if($exists) {
 				foreach($chatroom as $k => $v) {
-					$r = q("UPDATE chatroom SET `%s` = '%s' WHERE cr_name = '%s' AND cr_uid = %d",
+					$r = q("UPDATE chatroom SET " . TQUOT . "%s" . TQUOT . " = '%s' WHERE cr_name = '%s' AND cr_uid = %d",
 						dbesc($k),
 						dbesc($v),
 						dbesc($name),
@@ -568,13 +511,7 @@ function sync_chatrooms($channel,$chatrooms) {
 				}
 			}
 			else {
-				dbesc_array($chatroom);
-				$r = dbq("INSERT INTO chatroom (`" 
-					. implode("`, `", array_keys($chatroom)) 
-					. "`) VALUES ('" 
-					. implode("', '", array_values($chatroom)) 
-					. "')" 
-				);
+				create_table_from_array('chatroom',$chatroom);
 			}
 		}
 	}
@@ -629,6 +566,10 @@ function import_items($channel,$items,$sync = false,$relocate = null) {
 				$item_result = item_store($item,$allow_code,$deliver);
 			}
 
+			fix_attached_photo_permissions($channel['channel_id'],$item['author_xchan'],$item['body'],$item['allow_cid'],$item['allow_gid'],$item['deny_cid'],$item['deny_gid']);
+
+			fix_attached_file_permissions($channel,$item['author_xchan'],$item['body'],$item['allow_cid'],$item['allow_gid'],$item['deny_cid'],$item['deny_gid']);
+
 			if($sync && $item['item_wall']) {
 				// deliver singletons if we have any
 				if($item_result && $item_result['success']) {
@@ -680,13 +621,7 @@ function import_events($channel,$events) {
 			convert_oldfields($event,'type','etype');
 			convert_oldfields($event,'ignore','dismissed');
 
-			dbesc_array($event);
-			$r = dbq("INSERT INTO event (`" 
-				. implode("`, `", array_keys($event)) 
-				. "`) VALUES ('" 
-				. implode("', '", array_values($event)) 
-				. "')" 
-			);
+			create_table_from_array('event',$event);
 		}
 	}
 }
@@ -701,7 +636,7 @@ function sync_events($channel,$events) {
 				continue;
 
 			if($event['event_deleted']) {
-				$r = q("delete from event where event_hash = '%s' and uid = %d limit 1",
+				$r = q("delete from event where event_hash = '%s' and uid = %d",
 					dbesc($event['event_hash']),
 					intval($channel['channel_id'])
 				);	
@@ -732,7 +667,7 @@ function sync_events($channel,$events) {
 
 			if($exists) {
 				foreach($event as $k => $v) {
-					$r = q("UPDATE event SET `%s` = '%s' WHERE event_hash = '%s' AND uid = %d",
+					$r = q("UPDATE event SET " . TQUOT . "%s" . TQUOT . " = '%s' WHERE event_hash = '%s' AND uid = %d",
 						dbesc($k),
 						dbesc($v),
 						dbesc($event['event_hash']),
@@ -741,13 +676,7 @@ function sync_events($channel,$events) {
 				}
 			}
 			else {
-				dbesc_array($event);
-				$r = dbq("INSERT INTO event (`" 
-					. implode("`, `", array_keys($event)) 
-					. "`) VALUES ('" 
-					. implode("', '", array_values($event)) 
-					. "')" 
-				);
+				create_table_from_array('event',$event);
 			}
 		}
 	}
@@ -923,12 +852,7 @@ function import_likes($channel,$likes) {
 			if($r)
 				continue;
 
-			dbesc_array($like);
-			$r = dbq("INSERT INTO likes (`" 
-				. implode("`, `", array_keys($like)) 
-				. "`) VALUES ('" 
-				. implode("', '", array_values($like)) 
-				. "')" );
+			create_table_from_array('likes',$like);
 		}
 	}	
 }
@@ -937,7 +861,7 @@ function import_conv($channel,$convs) {
 	if($channel && $convs) {
 		foreach($convs as $conv) {
 			if($conv['deleted']) {
-				q("delete from conv where guid = '%s' and uid = %d limit 1",
+				q("delete from conv where guid = '%s' and uid = %d",
 					dbesc($conv['guid']),
 					intval($channel['channel_id'])
 				);
@@ -955,13 +879,7 @@ function import_conv($channel,$convs) {
 			);
 			if($r)
 				continue;
-
-			dbesc_array($conv);
-			$r = dbq("INSERT INTO conv (`" 
-				. implode("`, `", array_keys($conv)) 
-				. "`) VALUES ('" 
-				. implode("', '", array_values($conv)) 
-				. "')" );
+			create_table_from_array('conv',$conv);
 		}
 	}	
 }
@@ -972,14 +890,14 @@ function import_mail($channel,$mails,$sync = false) {
 	if($channel && $mails) {
 		foreach($mails as $mail) {
 			if(array_key_exists('flags',$mail) && in_array('deleted',$mail['flags'])) {
-				q("delete from mail where mid = '%s' and uid = %d limit 1",
+				q("delete from mail where mid = '%s' and uid = %d",
 					dbesc($mail['message_id']),
 					intval($channel['channel_id'])
 				);
 				continue;
 			}
 			if(array_key_exists('flags',$mail) && in_array('recalled',$mail['flags'])) {
-				q("update mail set mail_recalled = 1 where mid = '%s' and uid = %d limit 1",
+				q("update mail set mail_recalled = 1 where mid = '%s' and uid = %d",
 					dbesc($mail['message_id']),
 					intval($channel['channel_id'])
 				);
@@ -1032,7 +950,7 @@ function sync_files($channel,$files) {
 					}
 
 					$attach_exists = false;
-					$x = attach_by_hash($att['hash']);
+					$x = attach_by_hash($att['hash'],$channel['channel_hash']);
 					logger('sync_files duplicate check: attach_exists=' . $attach_exists, LOGGER_DEBUG);
 					logger('sync_files duplicate check: att=' . print_r($att,true), LOGGER_DEBUG);
 					logger('sync_files duplicate check: attach_by_hash() returned ' . print_r($x,true), LOGGER_DEBUG);
@@ -1102,26 +1020,26 @@ function sync_files($channel,$files) {
 					// If the hash ever contains any escapable chars this could cause
 					// problems. Currently it does not. 
 
-					dbesc_array($att);
+					// @TODO implement os_path
+					if(!isset($att['os_path']))
+						$att['os_path'] = '';
 
 
 					if($attach_exists) {
 						logger('sync_files attach exists: ' . print_r($att,true), LOGGER_DEBUG);
+						if(! dbesc_array($att))
+							continue;
 						$str = '';
-    						foreach($att as $k => $v) {
-				        		if($str)
-            							$str .= ",";
-        						$str .= " `" . $k . "` = '" . $v . "' ";
-    						}
-						$r = dbq("update `attach` set " . $str . " where id = " . intval($attach_id) );
+    					foreach($att as $k => $v) {
+			        		if($str)
+           							$str .= ",";
+       						$str .= " " . TQUOT . $k . TQUOT . " = '" . $v . "' ";
+    					}
+						$r = dbq("update attach set " . $str . " where id = " . intval($attach_id) );
 					}
 					else {
 						logger('sync_files attach does not exists: ' . print_r($att,true), LOGGER_DEBUG);
-						$r = dbq("INSERT INTO attach (`" 
-							. implode("`, `", array_keys($att)) 
-							. "`) VALUES ('" 
-							. implode("', '", array_values($att)) 
-							. "')" );
+						create_table_from_array('attach',$att);
 					}
 
 
@@ -1213,29 +1131,29 @@ function sync_files($channel,$files) {
 						$p['content'] = base64_decode($p['content']);
 
 
+					if(!isset($p['display_path']))
+						$p['display_path'] = '';
+
 					$exists = q("select * from photo where resource_id = '%s' and imgscale = %d and uid = %d limit 1",
 						dbesc($p['resource_id']),
 						intval($p['imgscale']),
 						intval($channel['channel_id'])
 					);
 
-					dbesc_array($p);
 
 					if($exists) {
+						if(! dbesc_array($p))
+							continue;
 					    $str = '';
     					foreach($p as $k => $v) {
 				        	if($str)
             					$str .= ",";
-        					$str .= " `" . $k . "` = '" . $v . "' ";
+        					$str .= " " . TQUOT . $k . TQUOT . " = '" . $v . "' ";
     					}
-					    $r = dbq("update `photo` set " . $str . " where id = " . intval($exists[0]['id']) );
+					    $r = dbq("update photo set " . $str . " where id = " . intval($exists[0]['id']) );
 					}
 					else {
-						$r = dbq("INSERT INTO photo (`" 
-							. implode("`, `", array_keys($p)) 
-							. "`) VALUES ('" 
-							. implode("', '", array_values($p)) 
-							. "')" );
+						create_attach_from_array('photo',$p);
 					}
 				}
 			}
@@ -1308,8 +1226,12 @@ function scan_webpage_elements($path, $type, $cloud = false) {
 							}
 							$content = file_get_contents($folder . '/' . $contentfilename);
 							if (!$content) {
-								logger('Failed to get file content for ' . $metadata['contentfile']);
-								return false;
+									if(is_readable($folder . '/' . $contentfilename)) {
+											$content = '';
+									} else {
+										logger('Failed to get file content for ' . $metadata['contentfile']);
+										return false;
+									}
 							}
 							$elements[] = $metadata;
 						}
@@ -1391,12 +1313,12 @@ function scan_webpage_elements($path, $type, $cloud = false) {
 				);
 				$arr['mid'] = $arr['parent_mid'] = $iteminfo[0]['mid'];
 				$arr['created'] = $iteminfo[0]['created'];
-				$arr['edited'] = (($element['edited']) ? datetime_convert('UTC', 'UTC', $element['edited']) : datetime_convert());
 		} else { // otherwise, generate the creation times and unique id
-				$arr['created'] = (($element['created']) ? datetime_convert('UTC', 'UTC', $element['created']) : datetime_convert());
-				$arr['edited'] = datetime_convert('UTC', 'UTC', '0000-00-00 00:00:00');
+				$arr['created'] = datetime_convert('UTC', 'UTC');
 				$arr['mid'] = $arr['parent_mid'] = item_message_id();
 		}
+		// Update the edited time whether or not the element already exists
+		$arr['edited'] = datetime_convert('UTC', 'UTC');
 		// Import the actual element content
 		$arr['body'] = file_get_contents($element['path']);
 		// The element owner is the channel importing the elements
@@ -1411,7 +1333,7 @@ function scan_webpage_elements($path, $type, $cloud = false) {
 										'application/x-pdl',
 										'application/x-php'	
 		];
-		// Blocks and pages can have any mimetype, but layouts must be text/bbcode
+		// Blocks and pages can have any of the valid mimetypes, but layouts must be text/bbcode
 		if((in_array($element['mimetype'], $mimetypes))	&& ($type === 'page' || $type === 'block') ) {
 				$arr['mimetype'] = $element['mimetype'];
 		} else {
@@ -1420,7 +1342,7 @@ function scan_webpage_elements($path, $type, $cloud = false) {
 
 		// Verify ability to use html or php!!!
 		$execflag = false;
-		if ($arr['mimetype'] === 'application/x-php') {
+		if ($arr['mimetype'] === 'application/x-php' || $arr['mimetype'] === 'text/html') {
 				$z = q("select account_id, account_roles, channel_pageflags from account "
 					. "left join channel on channel_account_id = account_id where channel_id = %d limit 1", 
 					intval(local_channel())
@@ -1428,10 +1350,15 @@ function scan_webpage_elements($path, $type, $cloud = false) {
 
 				if ($z && (($z[0]['account_roles'] & ACCOUNT_ROLE_ALLOWCODE) || ($z[0]['channel_pageflags'] & PAGE_ALLOWCODE))) {
 						$execflag = true;
+				} else {
+						logger('Unable to import element "' . $name .'" because AllowCode permission is denied.');
+						notice( t('Unable to import element "' . $name .'" because AllowCode permission is denied.') . EOL);
+						$element['import_success'] = 0;
+						return $element;
 				}
 		}
 		
-		$z = q("select * from iconfig where v = '%s' and k = '%s' and cat = 'service' limit 1", 
+		$z = q("select * from iconfig where v = '%s' and k = '%s' and cat = 'system' limit 1", 
 			dbesc($name), 
 			dbesc($namespace)
 		);
@@ -1467,4 +1394,194 @@ function scan_webpage_elements($path, $type, $cloud = false) {
 		
 		return $element;
     
+}
+
+function get_webpage_elements($channel, $type = 'all') {
+		$elements = array();
+		if(!$channel['channel_id'])	{
+				return null;
+		}
+		switch ($type) {
+				case 'all':
+						// If all, execute all the pages, layouts, blocks case statements
+				case 'pages':
+						$elements['pages'] = null;
+						$owner = $channel['channel_id'];
+							
+						$sql_extra = item_permissions_sql($owner);
+
+
+						$r = q("select * from iconfig left join item on iconfig.iid = item.id 
+							where item.uid = %d and iconfig.cat = 'system' and iconfig.k = 'WEBPAGE' and item_type = %d 
+							$sql_extra order by item.created desc",
+							intval($owner),
+							intval(ITEM_TYPE_WEBPAGE)
+						);
+						
+						$pages = null;
+
+						if($r) {
+								$elements['pages'] = array();
+							$pages = array();
+							foreach($r as $rr) {
+								unobscure($rr);
+
+								//$lockstate = (($rr['allow_cid'] || $rr['allow_gid'] || $rr['deny_cid'] || $rr['deny_gid']) ? 'lock' : 'unlock');
+
+								$element_arr = array(
+									'type'		=> 'webpage',
+									'title'		=> $rr['title'],
+									'body'		=> $rr['body'],
+									'created'	=> $rr['created'],
+									'edited'	=> $rr['edited'],
+									'mimetype'	=> $rr['mimetype'],
+									'pagetitle'	=> $rr['v'],
+									'mid'		=> $rr['mid'],
+									'layout_mid'    => $rr['layout_mid']
+								);
+								$pages[$rr['iid']][] = array(
+									'url'		=> $rr['iid'],
+									'pagetitle'	=> $rr['v'],
+									'title'		=> $rr['title'],
+									'created'	=> datetime_convert('UTC',date_default_timezone_get(),$rr['created']),
+									'edited'	=> datetime_convert('UTC',date_default_timezone_get(),$rr['edited']),
+									'bb_element'	=> '[element]' . base64url_encode(json_encode($element_arr)) . '[/element]',
+									//'lockstate'     => $lockstate
+								);
+								$elements['pages'][] = $element_arr;
+							}
+							
+						}
+						if($type !== 'all') {
+								break;
+						}
+
+				case 'layouts':
+						$elements['layouts'] = null;
+						$owner = $channel['channel_id'];
+							
+						$sql_extra = item_permissions_sql($owner);
+
+
+						$r = q("select * from iconfig left join item on iconfig.iid = item.id 
+							where item.uid = %d and iconfig.cat = 'system' and iconfig.k = 'PDL' and item_type = %d 
+							$sql_extra order by item.created desc",
+							intval($owner),
+							intval(ITEM_TYPE_PDL)
+						);
+						
+						$layouts = null;
+
+						if($r) {
+								$elements['layouts'] = array();
+							$layouts = array();
+							foreach($r as $rr) {
+								unobscure($rr);
+
+								$elements['layouts'][] = array(
+									'type'		=> 'layout',
+									'description'		=> $rr['title'],		// description of the layout
+									'body'		=> $rr['body'],
+									'created'	=> $rr['created'],
+									'edited'	=> $rr['edited'],
+									'mimetype'	=> $rr['mimetype'],
+									'name'	=> $rr['v'],					// name of reference for the layout
+									'mid'		=> $rr['mid'],
+								);
+							}
+							
+						}
+						
+						if($type !== 'all') {
+								break;
+						}
+						
+				case 'blocks':
+						$elements['blocks'] = null;
+						$owner = $channel['channel_id'];
+							
+						$sql_extra = item_permissions_sql($owner);
+
+
+						$r = q("select iconfig.iid, iconfig.k, iconfig.v, mid, title, body, mimetype, created, edited from iconfig 
+								left join item on iconfig.iid = item.id
+								where uid = %d and iconfig.cat = 'system' and iconfig.k = 'BUILDBLOCK' 
+								and item_type = %d order by item.created desc",
+								intval($owner),
+								intval(ITEM_TYPE_BLOCK)
+							);
+						
+						$blocks = null;
+
+						if($r) {
+								$elements['blocks'] = array();
+							$blocks = array();
+							foreach($r as $rr) {
+								unobscure($rr);
+
+								$elements['blocks'][] = array(
+										'type'      => 'block',
+										'title'	    => $rr['title'],
+										'body'      => $rr['body'],
+										'created'   => $rr['created'],
+										'edited'    => $rr['edited'],
+										'mimetype'  => $rr['mimetype'],
+										'name'			=> $rr['v'],
+										'mid'       => $rr['mid']
+									);
+							}
+							
+						}
+						
+						if($type !== 'all') {
+								break;
+						}
+						
+				default:
+						break;
+		}
+		return $elements;
+}
+
+/* creates a compressed zip file */
+
+function create_zip_file($files = array(), $destination = '', $overwrite = false) {
+		//if the zip file already exists and overwrite is false, return false
+		if (file_exists($destination) && !$overwrite) {
+				return false;
+		}
+		//vars
+		$valid_files = array();
+		//if files were passed in...
+		if (is_array($files)) {
+				//cycle through each file
+				foreach ($files as $file) {
+						//make sure the file exists
+						if (file_exists($file)) {
+								$valid_files[] = $file;
+						}
+				}
+		} 		
+
+		//if we have good files...
+		if (count($valid_files)) {
+				//create the archive
+				$zip = new ZipArchive();
+				if ($zip->open($destination, $overwrite ? ZIPARCHIVE::OVERWRITE : ZIPARCHIVE::CREATE) !== true) {
+						return false;
+				}
+				//add the files
+				foreach ($valid_files as $file) {
+						$zip->addFile($file, $file);
+				}
+				//debug
+				//echo 'The zip archive contains ',$zip->numFiles,' files with a status of ',$zip->status;
+				//close the zip -- done!
+				$zip->close();
+
+				//check to make sure the file exists
+				return file_exists($destination);
+		} else {
+				return false;
+		}
 }

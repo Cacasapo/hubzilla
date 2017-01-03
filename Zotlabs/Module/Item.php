@@ -20,6 +20,8 @@ namespace Zotlabs\Module;
 require_once('include/crypto.php');
 require_once('include/items.php');
 require_once('include/attach.php');
+require_once('include/bbcode.php');
+
 
 use \Zotlabs\Lib as Zlib;
 
@@ -81,6 +83,7 @@ class Item extends \Zotlabs\Web\Controller {
 		$api_source = ((x($_REQUEST,'api_source') && $_REQUEST['api_source']) ? true : false);
 	
 		$consensus = intval($_REQUEST['consensus']);
+		$nocomment = intval($_REQUEST['nocomment']);
 	
 		// 'origin' (if non-zero) indicates that this network is where the message originated,
 		// for the purpose of relaying comments to other conversation members. 
@@ -123,6 +126,8 @@ class Item extends \Zotlabs\Web\Controller {
 			$ret = $this->item_check_service_class($uid,(($_REQUEST['webpage'] == ITEM_TYPE_WEBPAGE) ? true : false));
 			if (!$ret['success']) { 
 				notice( t($ret['message']) . EOL) ;
+				if($api_source)
+					return ( [ 'success' => false, 'message' => 'service class exception' ] );	
 				if(x($_REQUEST,'return')) 
 					goaway(z_root() . "/" . $return_path );
 				killme();
@@ -153,13 +158,13 @@ class Item extends \Zotlabs\Web\Controller {
 				$obj_type = ACTIVITY_OBJ_COMMENT;
 	
 			if($parent) {
-				$r = q("SELECT * FROM `item` WHERE `id` = %d LIMIT 1",
+				$r = q("SELECT * FROM item WHERE id = %d LIMIT 1",
 					intval($parent)
 				);
 			}
 			elseif($parent_mid && $uid) {
 				// This is coming from an API source, and we are logged in
-				$r = q("SELECT * FROM `item` WHERE `mid` = '%s' AND `uid` = %d LIMIT 1",
+				$r = q("SELECT * FROM item WHERE mid = '%s' AND uid = %d LIMIT 1",
 					dbesc($parent_mid),
 					intval($uid)
 				);
@@ -169,7 +174,7 @@ class Item extends \Zotlabs\Web\Controller {
 				$parid = $r[0]['parent'];
 				$parent_mid = $r[0]['mid'];
 				if($r[0]['id'] != $r[0]['parent']) {
-					$r = q("SELECT * FROM `item` WHERE `id` = `parent` AND `parent` = %d LIMIT 1",
+					$r = q("SELECT * FROM item WHERE id = parent AND parent = %d LIMIT 1",
 						intval($parid)
 					);
 				}
@@ -177,6 +182,8 @@ class Item extends \Zotlabs\Web\Controller {
 	
 			if(($r === false) || (! count($r))) {
 				notice( t('Unable to locate original post.') . EOL);
+				if($api_source)
+					return ( [ 'success' => false, 'message' => 'invalid post id' ] );	
 				if(x($_REQUEST,'return')) 
 					goaway(z_root() . "/" . $return_path );
 				killme();
@@ -211,6 +218,8 @@ class Item extends \Zotlabs\Web\Controller {
 	
 			if(! $can_comment) {
 				notice( t('Permission denied.') . EOL) ;
+				if($api_source)
+					return ( [ 'success' => false, 'message' => 'permission denied' ] );	
 				if(x($_REQUEST,'return')) 
 					goaway(z_root() . "/" . $return_path );
 				killme();
@@ -219,6 +228,8 @@ class Item extends \Zotlabs\Web\Controller {
 		else {
 			if(! perm_is_allowed($profile_uid,$observer['xchan_hash'],($webpage) ? 'write_pages' : 'post_wall')) {
 				notice( t('Permission denied.') . EOL) ;
+				if($api_source)
+					return ( [ 'success' => false, 'message' => 'permission denied' ] );	
 				if(x($_REQUEST,'return')) 
 					goaway(z_root() . "/" . $return_path );
 				killme();
@@ -243,7 +254,7 @@ class Item extends \Zotlabs\Web\Controller {
 		$iconfig = null;
 	
 		if($post_id) {
-			$i = q("SELECT * FROM `item` WHERE `uid` = %d AND `id` = %d LIMIT 1",
+			$i = q("SELECT * FROM item WHERE uid = %d AND id = %d LIMIT 1",
 				intval($profile_uid),
 				intval($post_id)
 			);
@@ -273,6 +284,8 @@ class Item extends \Zotlabs\Web\Controller {
 	
 		if(! $channel) {
 			logger("mod_item: no channel.");
+			if($api_source)
+				return ( [ 'success' => false, 'message' => 'no channel' ] );	
 			if(x($_REQUEST,'return')) 
 				goaway(z_root() . "/" . $return_path );
 			killme();
@@ -288,6 +301,8 @@ class Item extends \Zotlabs\Web\Controller {
 		}
 		else {
 			logger("mod_item: no owner.");
+			if($api_source)
+				return ( [ 'success' => false, 'message' => 'no owner' ] );	
 			if(x($_REQUEST,'return')) 
 				goaway(z_root() . "/" . $return_path );
 			killme();
@@ -430,6 +445,8 @@ class Item extends \Zotlabs\Web\Controller {
 				if($preview)
 					killme();
 				info( t('Empty post discarded.') . EOL );
+				if($api_source)
+					return ( [ 'success' => false, 'message' => 'no content' ] );	
 				if(x($_REQUEST,'return')) 
 					goaway(z_root() . "/" . $return_path );
 				killme();
@@ -470,6 +487,8 @@ class Item extends \Zotlabs\Web\Controller {
 				}
 				else {
 					notice( t('Executable content type not permitted to this channel.') . EOL);
+					if($api_source)
+						return ( [ 'success' => false, 'message' => 'forbidden content type' ] );	
 					if(x($_REQUEST,'return')) 
 						goaway(z_root() . "/" . $return_path );
 					killme();
@@ -505,7 +524,7 @@ class Item extends \Zotlabs\Web\Controller {
 	//			$body = escape_tags(trim($body));
 	//			$body = str_replace("\n",'<br />', $body);
 	//			$body = preg_replace_callback('/\[share(.*?)\]/ism','\share_shield',$body);			
-	//			$body = diaspora2bb($body,true);
+	//			$body = markdown_to_bb($body,true);
 	//			$body = preg_replace_callback('/\[share(.*?)\]/ism','\share_unshield',$body);
 	//		}
 	
@@ -549,7 +568,9 @@ class Item extends \Zotlabs\Web\Controller {
 			$body = preg_replace_callback('/\[url(.*?)\[\/(url)\]/ism','\red_escape_codeblock',$body);
 			$body = preg_replace_callback('/\[zrl(.*?)\[\/(zrl)\]/ism','\red_escape_codeblock',$body);
 	
-			$body = preg_replace_callback("/([^\]\='".'"'."\/]|^|\#\^)(https?\:\/\/[a-zA-Z0-9\:\/\-\?\&\;\.\=\@\_\~\#\%\$\!\+\,]+)/ism", '\red_zrl_callback', $body);
+
+			$body = preg_replace_callback("/([^\]\='".'"'."\/]|^|\#\^)(https?\:\/\/[a-zA-Z0-9\:\/\-\?\&\;\.\=\@\_\~\#\%\$\!\+\,\(\)]+)/ism", 'nakedoembed', $body);
+			$body = preg_replace_callback("/([^\]\='".'"'."\/]|^|\#\^)(https?\:\/\/[a-zA-Z0-9\:\/\-\?\&\;\.\=\@\_\~\#\%\$\!\+\,\(\)]+)/ism", '\red_zrl_callback', $body);
 	
 			$body = preg_replace_callback('/\[\$b64zrl(.*?)\[\/(zrl)\]/ism','\red_unescape_codeblock',$body);
 			$body = preg_replace_callback('/\[\$b64url(.*?)\[\/(url)\]/ism','\red_unescape_codeblock',$body);
@@ -625,9 +646,9 @@ class Item extends \Zotlabs\Web\Controller {
 			 */
 	
 			if(! $preview) {
-				$this->fix_attached_photo_permissions($profile_uid,$owner_xchan['xchan_hash'],((strpos($body,'[/crypt]')) ? $_POST['media_str'] : $body),$str_contact_allow,$str_group_allow,$str_contact_deny,$str_group_deny);
+				fix_attached_photo_permissions($profile_uid,$owner_xchan['xchan_hash'],((strpos($body,'[/crypt]')) ? $_POST['media_str'] : $body),$str_contact_allow,$str_group_allow,$str_contact_deny,$str_group_deny);
 	
-				$this->fix_attached_file_permissions($channel,$observer['xchan_hash'],((strpos($body,'[/crypt]')) ? $_POST['media_str'] : $body),$str_contact_allow,$str_group_allow,$str_contact_deny,$str_group_deny);
+				fix_attached_file_permissions($channel,$observer['xchan_hash'],((strpos($body,'[/crypt]')) ? $_POST['media_str'] : $body),$str_contact_allow,$str_group_allow,$str_contact_deny,$str_group_deny);
 	
 			}
 	
@@ -707,6 +728,7 @@ class Item extends \Zotlabs\Web\Controller {
 		$item_wall = (($post_type === 'wall' || $post_type === 'wall-comment') ? 1 : 0);
 		$item_origin = (($origin) ? 1 : 0);
 		$item_consensus = (($consensus) ? 1 : 0);
+		$item_nocomment = (($nocomment) ? 1 : 0);
 	
 	
 		// determine if this is a wall post
@@ -753,71 +775,64 @@ class Item extends \Zotlabs\Web\Controller {
 			$plink = z_root() . '/channel/' . $channel['channel_address'] . '/?f=&mid=' . $mid;
 		}
 		
-	
-	
-	
-	
-		$datarray['aid']            = $channel['channel_account_id'];
-		$datarray['uid']            = $profile_uid;
-		
-		$datarray['owner_xchan']    = (($owner_hash) ? $owner_hash : $owner_xchan['xchan_hash']);
-		$datarray['author_xchan']   = $observer['xchan_hash'];
-		$datarray['created']        = $created;
-		$datarray['edited']         = (($orig_post) ? datetime_convert() : $created);
-		$datarray['expires']        = $expires;
-		$datarray['commented']      = (($orig_post) ? datetime_convert() : $created);
-		$datarray['received']       = (($orig_post) ? datetime_convert() : $created);
-		$datarray['changed']        = (($orig_post) ? datetime_convert() : $created);
-		$datarray['mid']            = $mid;
-		$datarray['parent_mid']     = $parent_mid;
-		$datarray['mimetype']       = $mimetype;
-		$datarray['title']          = $title;
-		$datarray['body']           = $body;
-		$datarray['app']            = $app;
-		$datarray['location']       = $location;
-		$datarray['coord']          = $coord;
-		$datarray['verb']           = $verb;
-		$datarray['obj_type']       = $obj_type;
-		$datarray['allow_cid']      = $str_contact_allow;
-		$datarray['allow_gid']      = $str_group_allow;
-		$datarray['deny_cid']       = $str_contact_deny;
-		$datarray['deny_gid']       = $str_group_deny;
-		$datarray['item_private']   = $private;
-		$datarray['item_wall']      = $item_wall;
-		$datarray['attach']         = $attachments;
-		$datarray['thr_parent']     = $thr_parent;
-		$datarray['postopts']       = $postopts;
-		$datarray['item_unseen']    = $item_unseen;
-		$datarray['item_wall']      = $item_wall;
-		$datarray['item_origin']    = $item_origin;
-		$datarray['item_type']      = $webpage;
-		$datarray['item_thread_top'] = $item_thread_top;
-		$datarray['item_unseen']    = $item_unseen;
-		$datarray['item_starred']    = $item_starred;
-		$datarray['item_uplink']    = $item_uplink;
-		$datarray['item_consensus']    = $item_consensus;
-		$datarray['item_notshown']    = $item_notshown;
-		$datarray['item_nsfw']    = $item_nsfw;
-		$datarray['item_relay']    = $item_relay;
-		$datarray['item_mentionsme']    = $item_mentionsme;
-		$datarray['item_nocomment']    = $item_nocomment;
-		$datarray['item_obscured']    = $item_obscured;
-		$datarray['item_verified']    = $item_verified;
-		$datarray['item_retained']    = $item_retained;
-		$datarray['item_rss']    = $item_rss;
-		$datarray['item_deleted']    = $item_deleted;
-		$datarray['item_hidden']    = $item_hidden;
-		$datarray['item_unpublished']    = $item_unpublished;
-		$datarray['item_delayed']    = $item_delayed;
-		$datarray['item_pending_remove']    = $item_pending_remove;
-		$datarray['item_blocked']    = $item_blocked;
-	
-		$datarray['layout_mid']     = $layout_mid;
-		$datarray['public_policy']  = $public_policy;
-		$datarray['comment_policy'] = map_scope($comment_policy); 
-		$datarray['term']           = $post_tags;
-		$datarray['plink']          = $plink;
-		$datarray['route']          = $route;
+		$datarray['aid']                 = $channel['channel_account_id'];
+		$datarray['uid']                 = $profile_uid;
+		$datarray['owner_xchan']         = (($owner_hash) ? $owner_hash : $owner_xchan['xchan_hash']);
+		$datarray['author_xchan']        = $observer['xchan_hash'];
+		$datarray['created']             = $created;
+		$datarray['edited']              = (($orig_post) ? datetime_convert() : $created);
+		$datarray['expires']             = $expires;
+		$datarray['commented']           = (($orig_post) ? datetime_convert() : $created);
+		$datarray['received']            = (($orig_post) ? datetime_convert() : $created);
+		$datarray['changed']             = (($orig_post) ? datetime_convert() : $created);
+		$datarray['mid']                 = $mid;
+		$datarray['parent_mid']          = $parent_mid;
+		$datarray['mimetype']            = $mimetype;
+		$datarray['title']               = $title;
+		$datarray['body']                = $body;
+		$datarray['app']                 = $app;
+		$datarray['location']            = $location;
+		$datarray['coord']               = $coord;
+		$datarray['verb']                = $verb;
+		$datarray['obj_type']            = $obj_type;
+		$datarray['allow_cid']           = $str_contact_allow;
+		$datarray['allow_gid']           = $str_group_allow;
+		$datarray['deny_cid']            = $str_contact_deny;
+		$datarray['deny_gid']            = $str_group_deny;
+		$datarray['attach']              = $attachments;
+		$datarray['thr_parent']          = $thr_parent;
+		$datarray['postopts']            = $postopts;
+		$datarray['item_unseen']         = intval($item_unseen);
+		$datarray['item_wall']           = intval($item_wall);
+		$datarray['item_origin']         = intval($item_origin);
+		$datarray['item_type']           = $webpage;
+		$datarray['item_private']        = intval($private);
+		$datarray['item_thread_top']     = intval($item_thread_top);
+		$datarray['item_unseen']         = intval($item_unseen);
+		$datarray['item_starred']        = intval($item_starred);
+		$datarray['item_uplink']         = intval($item_uplink);
+		$datarray['item_consensus']      = intval($item_consensus);
+		$datarray['item_notshown']       = intval($item_notshown);
+		$datarray['item_nsfw']           = intval($item_nsfw);
+		$datarray['item_relay']          = intval($item_relay);
+		$datarray['item_mentionsme']     = intval($item_mentionsme);
+		$datarray['item_nocomment']      = intval($item_nocomment);
+		$datarray['item_obscured']       = intval($item_obscured);
+		$datarray['item_verified']       = intval($item_verified);
+		$datarray['item_retained']       = intval($item_retained);
+		$datarray['item_rss']            = intval($item_rss);
+		$datarray['item_deleted']        = intval($item_deleted);
+		$datarray['item_hidden']         = intval($item_hidden);
+		$datarray['item_unpublished']    = intval($item_unpublished);
+		$datarray['item_delayed']        = intval($item_delayed);
+		$datarray['item_pending_remove'] = intval($item_pending_remove);
+		$datarray['item_blocked']        = intval($item_blocked);	
+		$datarray['layout_mid']          = $layout_mid;
+		$datarray['public_policy']       = $public_policy;
+		$datarray['comment_policy']      = map_scope($comment_policy); 
+		$datarray['term']                = $post_tags;
+		$datarray['plink']               = $plink;
+		$datarray['route']               = $route;
 	
 		if($iconfig)
 			$datarray['iconfig'] = $iconfig;
@@ -864,7 +879,8 @@ class Item extends \Zotlabs\Web\Controller {
 			logger('mod_item: post cancelled by plugin or duplicate suppressed.');
 			if($return_path)
 				goaway(z_root() . "/" . $return_path);
-	
+			if($api_source)
+				return ( [ 'success' => false, 'message' => 'operation cancelled' ] );	
 			$json = array('cancel' => 1);
 			$json['reload'] = z_root() . '/' . $_REQUEST['jsreload'];
 			echo json_encode($json);
@@ -902,6 +918,8 @@ class Item extends \Zotlabs\Web\Controller {
 	
 			$x = item_store_update($datarray,$execflag);
 			
+			item_create_edit_activity($x);			
+
 			if(! $parent) {
 				$r = q("select * from item where id = %d",
 					intval($post_id)
@@ -915,6 +933,10 @@ class Item extends \Zotlabs\Web\Controller {
 			if(! $nopush)
 				\Zotlabs\Daemon\Master::Summon(array('Notifier', 'edit_post', $post_id));
 	
+
+			if($api_source)
+				return($x);
+
 			if((x($_REQUEST,'return')) && strlen($return_path)) {
 				logger('return: ' . $return_path);
 				goaway(z_root() . "/" . $return_path );
@@ -927,7 +949,9 @@ class Item extends \Zotlabs\Web\Controller {
 		$post = item_store($datarray,$execflag);
 	
 		$post_id = $post['item_id'];
-	
+
+		$datarray = $post['item'];
+
 		if($post_id) {
 			logger('mod_item: saved item ' . $post_id);
 	
@@ -987,8 +1011,11 @@ class Item extends \Zotlabs\Web\Controller {
 		else {
 			logger('mod_item: unable to retrieve post that was just stored.');
 			notice( t('System error. Post not saved.') . EOL);
-			goaway(z_root() . "/" . $return_path );
-			// NOTREACHED
+			if($return_path)
+				goaway(z_root() . "/" . $return_path );
+			if($api_source)
+				return ( [ 'success' => false, 'message' => 'system error' ] );
+			killme();
 		}
 		
 		if(($parent) && ($parent != $post_id)) {
@@ -1081,6 +1108,14 @@ class Item extends \Zotlabs\Web\Controller {
 				else {
 					// complex deletion that needs to propagate and be performed in phases
 					drop_item($i[0]['id'],true,DROPITEM_PHASE1);
+					$r = q("select * from item where id = %d",
+						intval($i[0]['id'])
+					);
+					if($r) {
+						xchan_query($r);
+						$sync_item = fetch_post_tags($r);
+						build_sync_packet($i[0]['uid'],array('item' => array(encode_item($sync_item[0],true))));
+					}
 					tag_deliver($i[0]['uid'],$i[0]['id']);
 				}
 			}
@@ -1088,138 +1123,6 @@ class Item extends \Zotlabs\Web\Controller {
 	}
 	
 	
-	function fix_attached_photo_permissions($uid,$xchan_hash,$body,
-			$str_contact_allow,$str_group_allow,$str_contact_deny,$str_group_deny) {
-	
-		if(get_pconfig($uid,'system','force_public_uploads')) {
-			$str_contact_allow = $str_group_allow = $str_contact_deny = $str_group_deny = '';
-		}
-	
-		$match = null;
-		// match img and zmg image links
-		if(preg_match_all("/\[[zi]mg(.*?)\](.*?)\[\/[zi]mg\]/",$body,$match)) {
-			$images = $match[2];
-			if($images) {
-				foreach($images as $image) {
-					if(! stristr($image,z_root() . '/photo/'))
-						continue;
-					$image_uri = substr($image,strrpos($image,'/') + 1);
-					if(strpos($image_uri,'-') !== false)
-						$image_uri = substr($image_uri,0, strpos($image_uri,'-'));
-					if(strpos($image_uri,'.') !== false)
-						$image_uri = substr($image_uri,0, strpos($image_uri,'.'));
-					if(! strlen($image_uri))
-						continue;
-					$srch = '<' . $xchan_hash . '>';
-						
-					$r = q("select folder from attach where hash = '%s' and uid = %d limit 1",
-						dbesc($image_uri),
-						intval($uid)
-					);
-					if($r && $r[0]['folder']) {
-						$f = q("select * from attach where hash = '%s' and is_dir = 1 and uid = %d limit 1",
-							dbesc($r[0]['folder']),
-							intval($uid)
-						);
-						if(($f) && (($f[0]['allow_cid']) || ($f[0]['allow_gid']) || ($f[0]['deny_cid']) || ($f[0]['deny_gid']))) {
-							$str_contact_allow = $f[0]['allow_cid'];
-							$str_group_allow = $f[0]['allow_gid'];
-							$str_contact_deny = $f[0]['deny_cid'];
-							$str_group_deny = $f[0]['deny_gid'];
-						}
-					}
-	
-					$r = q("SELECT id FROM photo 
-						WHERE allow_cid = '%s' AND allow_gid = '' AND deny_cid = '' AND deny_gid = ''
-						AND resource_id = '%s' AND uid = %d LIMIT 1",
-						dbesc($srch),
-						dbesc($image_uri),
-						intval($uid)
-					);
-	
-					if($r) {
-						$r = q("UPDATE photo SET allow_cid = '%s', allow_gid = '%s', deny_cid = '%s', deny_gid = '%s'
-							WHERE resource_id = '%s' AND uid = %d ",
-							dbesc($str_contact_allow),
-							dbesc($str_group_allow),
-							dbesc($str_contact_deny),
-							dbesc($str_group_deny),
-							dbesc($image_uri),
-							intval($uid)
-						);
-	
-						// also update the linked item (which is probably invisible)
-	
-						$r = q("select id from item
-							WHERE allow_cid = '%s' AND allow_gid = '' AND deny_cid = '' AND deny_gid = ''
-							AND resource_id = '%s' and resource_type = 'photo' AND uid = %d LIMIT 1",
-							dbesc($srch),
-							dbesc($image_uri),
-							intval($uid)
-						);
-						if($r) {
-							$private = (($str_contact_allow || $str_group_allow || $str_contact_deny || $str_group_deny) ? true : false);
-	
-							$r = q("UPDATE item SET allow_cid = '%s', allow_gid = '%s', deny_cid = '%s', deny_gid = '%s', item_private = %d
-								WHERE id = %d AND uid = %d",
-								dbesc($str_contact_allow),
-								dbesc($str_group_allow),
-								dbesc($str_contact_deny),
-								dbesc($str_group_deny),
-								intval($private),
-								intval($r[0]['id']),
-								intval($uid)
-							);
-						}
-						$r = q("select id from attach where hash = '%s' and uid = %d limit 1",
-							dbesc($image_uri),
-							intval($uid)
-						);
-						if($r) {
-							q("update attach SET allow_cid = '%s', allow_gid = '%s', deny_cid = '%s', deny_gid = '%s'
-								WHERE id = %d AND uid = %d",
-								dbesc($str_contact_allow),
-								dbesc($str_group_allow),
-								dbesc($str_contact_deny),
-								dbesc($str_group_deny),
-								intval($r[0]['id']),
-								intval($uid)
-							);
-						} 
-					}
-				}
-			}
-		}
-	}
-	
-	
-	function fix_attached_file_permissions($channel,$observer_hash,$body,
-			$str_contact_allow,$str_group_allow,$str_contact_deny,$str_group_deny) {
-	
-		if(get_pconfig($channel['channel_id'],'system','force_public_uploads')) {
-			$str_contact_allow = $str_group_allow = $str_contact_deny = $str_group_deny = '';
-		}
-	
-		$match = false;
-	
-		if(preg_match_all("/\[attachment\](.*?)\[\/attachment\]/",$body,$match)) {
-			$attaches = $match[1];
-			if($attaches) {
-				foreach($attaches as $attach) {
-					$hash = substr($attach,0,strpos($attach,','));
-					$rev = intval(substr($attach,strpos($attach,',')));
-					attach_store($channel,$observer_hash,$options = 'update', array(
-						'hash'      => $hash,
-						'revision'  => $rev,
-						'allow_cid' => $str_contact_allow,
-						'allow_gid'  => $str_group_allow,
-						'deny_cid'  => $str_contact_deny,
-						'deny_gid'  => $str_group_deny
-					));
-				}
-			}
-		}
-	}
 	
 	function item_check_service_class($channel_id,$iswebpage) {
 		$ret = array('success' => false, 'message' => '');

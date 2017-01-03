@@ -27,6 +27,9 @@
  * documented.
  */
 
+// composer autoloader for all namespaced Classes
+require_once('vendor/autoload.php');
+
 require_once('include/config.php');
 require_once('include/network.php');
 require_once('include/plugin.php');
@@ -41,13 +44,14 @@ require_once('include/taxonomy.php');
 require_once('include/channel.php');
 require_once('include/connections.php');
 require_once('include/account.php');
+require_once('include/zid.php');
 
 
 define ( 'PLATFORM_NAME',           'hubzilla' );
-define ( 'STD_VERSION',             '1.12' );
-define ( 'ZOT_REVISION',            '1.1' );
+define ( 'STD_VERSION',             '2.0.2' );
+define ( 'ZOT_REVISION',            '1.2' );
 
-define ( 'DB_UPDATE_VERSION',       1181  );
+define ( 'DB_UPDATE_VERSION',       1185  );
 
 
 /**
@@ -59,7 +63,6 @@ define ( 'DB_UPDATE_VERSION',       1181  );
  */
 define ( 'EOL',                    '<br>' . "\r\n"        );
 define ( 'ATOM_TIME',              'Y-m-d\TH:i:s\Z'       );
-//define ( 'NULL_DATE',              '0000-00-00 00:00:00'  );
 define ( 'TEMPLATE_BUILD_PATH',    'store/[data]/smarty3' );
 
 define ( 'DIRECTORY_MODE_NORMAL',      0x0000); // A directory client
@@ -80,8 +83,7 @@ $DIRECTORY_FALLBACK_SERVERS = array(
 	'https://hubzilla.zottel.net',
 	'https://hub.pixelbits.de',
 	'https://my.federated.social',
-	'https://hubzilla.nl',
-	'https://blablanet.es'
+	'https://hubzilla.nl'
 );
 
 
@@ -150,15 +152,6 @@ define ( 'MAX_IMAGE_LENGTH',        -1  );
 define ( 'DEFAULT_DB_ENGINE',  'MyISAM'  );
 
 /**
- * SSL redirection policies
- */
-
-define ( 'SSL_POLICY_NONE',         0 );
-define ( 'SSL_POLICY_FULL',         1 );
-define ( 'SSL_POLICY_SELFSIGN',     2 ); // NOT supported in Red
-
-
-/**
  * log levels
  */
 
@@ -167,6 +160,15 @@ define ( 'LOGGER_TRACE',           1 );
 define ( 'LOGGER_DEBUG',           2 );
 define ( 'LOGGER_DATA',            3 );
 define ( 'LOGGER_ALL',             4 );
+
+
+/**
+ * Server roles
+ */
+
+define ( 'SERVER_ROLE_BASIC',     0x0001 );
+define ( 'SERVER_ROLE_STANDARD',  0x0002 );
+define ( 'SERVER_ROLE_PRO',       0x0004 );
 
 /**
  * registration policies
@@ -401,6 +403,7 @@ define ( 'NOTIFY_PROFILE',  0x0040 );
 define ( 'NOTIFY_TAGSELF',  0x0080 );
 define ( 'NOTIFY_TAGSHARE', 0x0100 );
 define ( 'NOTIFY_POKE',     0x0200 );
+define ( 'NOTIFY_LIKE',     0x0400 );
 
 define ( 'NOTIFY_SYSTEM',   0x8000 );
 
@@ -602,6 +605,12 @@ function sys_boot() {
 
 	@include('.htconfig.php');
 
+	// allow somebody to set some initial settings just in case they can't
+	// install without special fiddling
+
+	if(App::$install && file_exists('.htpreconfig.php'))
+		@include('.htpreconfig.php');
+
 	if(array_key_exists('default_timezone',get_defined_vars())) {
 		App::$config['system']['timezone'] = $default_timezone;
 	}
@@ -612,15 +621,27 @@ function sys_boot() {
 		if(UNO)
 			App::$config['system']['server_role'] = 'basic';
 		else
-			App::$config['system']['server_role'] = 'pro';
+			App::$config['system']['server_role'] = 'standard';
 	}
 
 	if(! (array_key_exists('server_role',App::$config['system']) && App::$config['system']['server_role']))
-		App::$config['system']['server_role'] = 'pro';
+		App::$config['system']['server_role'] = 'standard';
 
 	App::$timezone = ((App::$config['system']['timezone']) ? App::$config['system']['timezone'] : 'UTC');
 	date_default_timezone_set(App::$timezone);
 
+
+	if(! defined('DEFAULT_PLATFORM_ICON')) {
+		define( 'DEFAULT_PLATFORM_ICON', '/images/hz-32.png' );
+	}
+
+	if(! defined('DEFAULT_NOTIFY_ICON')) {
+		define( 'DEFAULT_NOTIFY_ICON', '/images/hz-white-32.png' );
+	}
+
+	if(! defined('CRYPTO_ALGORITHM')) {
+		define( 'CRYPTO_ALGORITHM', 'aes256cbc' );
+	}
 
 	/*
 	 * Try to open the database;
@@ -695,43 +716,14 @@ function startup() {
 }
 
 
-class ZotlabsAutoloader {
-    static public function loader($className) {
-        $filename = str_replace('\\', '/', $className) . ".php";
-        if(file_exists($filename)) {
-            include($filename);
-            if (class_exists($className)) {
-                return TRUE;
-            }
-        }
-		$arr = explode('\\',$className);
-		if($arr && count($arr) > 1) {
-			if(! $arr[0])
-				$arr = array_shift($arr);
-	        $filename = 'addon/' . lcfirst($arr[0]) . '/' . $arr[1] . ((count($arr) === 2) ? '.php' : '/' . $arr[2] . ".php");
-    	    if(file_exists($filename)) {
-        	    include($filename);
-            	if (class_exists($className)) {
-                	return TRUE;
-	            }
-    	    }
-		}
-
-        return FALSE;
-    }
-}
-
-
 /**
  * class miniApp
  *
  * this is a transient structure which is needed to convert the $a->config settings
  * from older (existing) htconfig files which used a global App ($a) into the updated App structure
- * which is now static (although currently constructed at startup). We are only converting 
- * 'system' config settings. 
+ * which is now static (although currently constructed at startup). We are only converting
+ * 'system' config settings.
  */
-
-
 class miniApp {
 	public $config = array('system' => array());
 
@@ -760,7 +752,7 @@ class miniApp {
 class App {
 
 	public  static $install    = false;           // true if we are installing the software
-
+	public  static $role       = 0;               // server role (constant, not the string)
 	public  static $account    = null;            // account record of the logged-in account
 	public  static $channel    = null;            // channel record of the current channel of the logged-in account
 	public  static $observer   = null;            // xchan record of the page observer
@@ -975,29 +967,19 @@ class App {
 		self::$is_mobile = $mobile_detect->isMobile();
 		self::$is_tablet = $mobile_detect->isTablet();
 
-		self::head_set_icon('/images/hz-32.png');
+		self::head_set_icon(DEFAULT_PLATFORM_ICON);
 
 		/*
 		 * register template engines
 		 */
-
-		spl_autoload_register('ZotlabsAutoloader::loader');
 
 		self::$meta= new Zotlabs\Web\HttpMeta();
 
 		// create an instance of the smarty template engine so we can register it.
 
 		$smarty = new Zotlabs\Render\SmartyTemplate();
-
-		$dc = get_declared_classes();
-
-		foreach ($dc as $k) {
-			if(in_array('Zotlabs\\Render\\TemplateEngine', class_implements($k))) {
-				self::register_template_engine($k);
-			}
-		}
-
-
+		/// @todo validate if this is still the desired behavior
+		self::register_template_engine(get_class($smarty));
 
 	}
 
@@ -1043,6 +1025,31 @@ class App {
 				self::$path = trim($parsed['path'],'\\/');
 		}
 	}
+
+	public static function get_role() {
+		if(! self::$role)
+			return self::set_role();
+		return self::$role;
+	}
+
+	public static function set_role() {
+		$role_str = \Zotlabs\Lib\System::get_server_role();
+		switch($role_str) {
+			case 'basic':
+				$role = SERVER_ROLE_BASIC;
+				break;
+			case 'pro':
+				$role = SERVER_ROLE_PRO;
+				break;
+			case 'standard':
+			default:
+				$role = SERVER_ROLE_STANDARD;
+				break;
+		}
+		self::$role = $role;
+		return $role;
+	}
+
 
 	public static function get_scheme() {
 		return self::$scheme;
@@ -1133,9 +1140,9 @@ class App {
 
 	public static function build_pagehead() {
 
-		$user_scalable = ((local_channel()) ? get_pconfig(local_channel(),'system','user_scalable') : 1);
+		$user_scalable = ((local_channel()) ? get_pconfig(local_channel(),'system','user_scalable') : 0);
 		if ($user_scalable === false)
-			$user_scalable = 1;
+			$user_scalable = 0;
 
 		$preload_images = ((local_channel()) ? get_pconfig(local_channel(),'system','preload_images') : 0);
 		if ($preload_images === false)
@@ -1583,13 +1590,13 @@ function fix_system_urls($oldurl, $newurl) {
 	);
 
 	if($r) {
-		foreach($r as $rr) {
-			$channel_address = substr($rr['hubloc_addr'],0,strpos($rr['hubloc_addr'],'@'));
+		foreach($r as $rv) {
+			$channel_address = substr($rv['hubloc_addr'],0,strpos($rv['hubloc_addr'],'@'));
 
 			// get the associated channel. If we don't have a local channel, do nothing for this entry.
 
 			$c = q("select * from channel where channel_hash = '%s' limit 1",
-				dbesc($rr['hubloc_hash'])
+				dbesc($rv['hubloc_hash'])
 			);
 			if(! $c)
 				continue;
@@ -1611,19 +1618,19 @@ function fix_system_urls($oldurl, $newurl) {
 
 			// The xchan_url might point to another nomadic identity clone
 
-			$replace_xchan_url = ((strpos($rr['xchan_url'],$oldurl) !== false) ? true : false);
+			$replace_xchan_url = ((strpos($rv['xchan_url'],$oldurl) !== false) ? true : false);
 
 			$x = q("update xchan set xchan_addr = '%s', xchan_url = '%s', xchan_connurl = '%s', xchan_follow = '%s', xchan_connpage = '%s', xchan_photo_l = '%s', xchan_photo_m = '%s', xchan_photo_s = '%s', xchan_photo_date = '%s' where xchan_hash = '%s'",
 				dbesc($channel_address . '@' . $rhs),
-				dbesc(($replace_xchan_url) ? str_replace($oldurl,$newurl,$rr['xchan_url']) : $rr['xchan_url']),
-				dbesc(str_replace($oldurl,$newurl,$rr['xchan_connurl'])),
-				dbesc(str_replace($oldurl,$newurl,$rr['xchan_follow'])),
-				dbesc(str_replace($oldurl,$newurl,$rr['xchan_connpage'])),
-				dbesc(str_replace($oldurl,$newurl,$rr['xchan_photo_l'])),
-				dbesc(str_replace($oldurl,$newurl,$rr['xchan_photo_m'])),
-				dbesc(str_replace($oldurl,$newurl,$rr['xchan_photo_s'])),
+				dbesc(($replace_xchan_url) ? str_replace($oldurl,$newurl,$rv['xchan_url']) : $rv['xchan_url']),
+				dbesc(str_replace($oldurl,$newurl,$rv['xchan_connurl'])),
+				dbesc(str_replace($oldurl,$newurl,$rv['xchan_follow'])),
+				dbesc(str_replace($oldurl,$newurl,$rv['xchan_connpage'])),
+				dbesc(str_replace($oldurl,$newurl,$rv['xchan_photo_l'])),
+				dbesc(str_replace($oldurl,$newurl,$rv['xchan_photo_m'])),
+				dbesc(str_replace($oldurl,$newurl,$rv['xchan_photo_s'])),
 				dbesc(datetime_convert()),
-				dbesc($rr['xchan_hash'])
+				dbesc($rv['xchan_hash'])
 			);
 
 			$y = q("update hubloc set hubloc_addr = '%s', hubloc_url = '%s', hubloc_url_sig = '%s', hubloc_host = '%s', hubloc_callback = '%s' where hubloc_hash = '%s' and hubloc_url = '%s'",
@@ -1632,13 +1639,13 @@ function fix_system_urls($oldurl, $newurl) {
 				dbesc(base64url_encode(rsa_sign($newurl,$c[0]['channel_prvkey']))),
 				dbesc($newhost),
 				dbesc($newurl . '/post'),
-				dbesc($rr['xchan_hash']),
+				dbesc($rv['xchan_hash']),
 				dbesc($oldurl)
 			);
 
 			$z = q("update profile set photo = '%s', thumb = '%s' where uid = %d",
-				dbesc(str_replace($oldurl,$newurl,$rr['xchan_photo_l'])),
-				dbesc(str_replace($oldurl,$newurl,$rr['xchan_photo_m'])),
+				dbesc(str_replace($oldurl,$newurl,$rv['xchan_photo_l'])),
+				dbesc(str_replace($oldurl,$newurl,$rv['xchan_photo_m'])),
 				intval($c[0]['channel_id'])
 			);
 
@@ -1666,12 +1673,12 @@ function fix_system_urls($oldurl, $newurl) {
 	);
 
 	if($r) {
-		foreach($r as $rr) {
+		foreach($r as $rv) {
 			$x = q("update xchan set xchan_photo_l = '%s', xchan_photo_m = '%s', xchan_photo_s = '%s' where xchan_hash = '%s'",
-				dbesc(str_replace($oldurl,$newurl,$rr['xchan_photo_l'])),
-				dbesc(str_replace($oldurl,$newurl,$rr['xchan_photo_m'])),
-				dbesc(str_replace($oldurl,$newurl,$rr['xchan_photo_s'])),
-				dbesc($rr['xchan_hash'])
+				dbesc(str_replace($oldurl,$newurl,$rv['xchan_photo_l'])),
+				dbesc(str_replace($oldurl,$newurl,$rv['xchan_photo_m'])),
+				dbesc(str_replace($oldurl,$newurl,$rv['xchan_photo_s'])),
+				dbesc($rv['xchan_hash'])
 			);
 		}
 	}
@@ -1731,14 +1738,6 @@ function login($register = false, $form_id = 'main-login', $hiddens=false) {
  * @brief Used to end the current process, after saving session state.
  */
 function killme() {
-
-	// Ensure that closing the database is the last function on the shutdown stack.
-	// If it is closed prematurely sessions might not get saved correctly.
-	// Note the second arg to PHP's session_set_save_handler() seems to order that shutdown 
-	// procedure last despite our best efforts, so we don't use that and implictly
-	// call register_shutdown_function('session_write_close'); within Zotlabs\Web\Session::init()
-	// and then register the database close function here where nothing else can register
-	// after it.
 
 	register_shutdown_function('shutdown');
 	exit;
@@ -2029,8 +2028,8 @@ function load_contact_links($uid) {
 		intval($uid)
 	);
 	if($r) {
-		foreach($r as $rr){
-			$ret[$rr['xchan_hash']] = $rr;
+		foreach($r as $rv){
+			$ret[$rv['xchan_hash']] = $rv;
 		}
 	}
 	else
@@ -2210,6 +2209,9 @@ function construct_page(&$a) {
 	}
 
 	$current_theme = Zotlabs\Render\Theme::current();
+
+	// logger('current_theme: ' . print_r($current_theme,true));
+	// Zotlabs\Render\Theme::debug();
 
 	if (($p = theme_include($current_theme[0] . '.js')) != '')
 		head_add_js($p);
@@ -2451,6 +2453,11 @@ function cert_bad_email() {
 
 function check_for_new_perms() {
 
+	// Do not execute if we are in the middle of a git update and the relevant versions don't match
+
+	if( \Zotlabs\Access\Permissions::version() != \Zotlabs\Access\PermissionRoles::version())
+		return;
+
 	$pregistered = get_config('system','perms');
 	$pcurrent = array_keys(\Zotlabs\Access\Permissions::Perms());
 
@@ -2480,19 +2487,27 @@ function check_for_new_perms() {
 						// get the permissions role details
 						$rp = \Zotlabs\Access\PermissionRoles::role_perms($r[0]['v']);
 						if($rp) {
-							// set the channel limits if appropriate or 0
-							if(array_key_exists('limits',$rp) && array_key_exists($p,$rp['limits'])) {
-								\Zotlabs\Access\PermissionLimits::Set($cc['uid'],$p,$rp['limits'][$p]);
+
+							// for custom permission roles we need to customise how we initiate this new permission
+							if(array_key_exists('role',$rp) && ($rp['role'] === 'custom' || $rp['role'] === '')) {
+								\Zotlabs\Access\PermissionRoles::new_custom_perms($cc['uid'],$p,$x);
 							}
 							else {
-								\Zotlabs\Access\PermissionLimits::Set($cc['uid'],$p,0);
-							}
+								// set the channel limits if appropriate or 0
+								if(array_key_exists('limits',$rp) && array_key_exists($p,$rp['limits'])) {
+									\Zotlabs\Access\PermissionLimits::Set($cc['uid'],$p,$rp['limits'][$p]);
+								}
+								else {
+									\Zotlabs\Access\PermissionLimits::Set($cc['uid'],$p,0);
+								}
 
-							$set = ((array_key_exists('perms_connect',$rp) && array_key_exists($p,$rp['perms_connect'])) ? true : false);
-							// foreach connection set to the perms_connect value
-							if($x) {
-								foreach($x as $xx) {
-									set_abconfig($cc['uid'],$xx['abook_xchan'],'my_perms',$p,intval($set));
+
+								$set = ((array_key_exists('perms_connect',$rp) && array_key_exists($p,$rp['perms_connect'])) ? true : false);
+								// foreach connection set to the perms_connect value
+								if($x) {
+									foreach($x as $xx) {
+										set_abconfig($cc['uid'],$xx['abook_xchan'],'my_perms',$p,intval($set));
+									}
 								}
 							}
 						}

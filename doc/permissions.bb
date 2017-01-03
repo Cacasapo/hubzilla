@@ -28,10 +28,12 @@ We highly recommend that you use the "typical social network" settings when you 
   
   [*= Anybody On This Hub ] Anybody with a channel on the same hub/website as you will have permission approved. Anybody who is registered at a different hub will have this permission denied.
   
-  [*= Anybody in this network ] Anybody in the $Projectname will have this permission approved. Even complete   strangers. However, anybody not logged in/authenticated will have this permission denied.
+  [*= Anybody in this network ] Anybody in $Projectname will have this permission approved. Even complete   strangers. However, anybody not logged in/authenticated will have this permission denied.
   
   [*= Anybody authenticated ] This is similar to "anybody in this network" except that it can include anybody   who can authenticate by any means - and therefore [i]may[/i] include visitors from other networks.
   
+  [*=Guest Access Token] This allows you to share a file, folder, photo, album, or channel with a specific person or group of people. They don't need to be Hubzilla members. You can set an expiration for the Access Token.
+
   [*= Anybody on the internet ] Completely public. This permission will be approved for anybody at all.
 [/dl]
 [*= The individual permissions are:]

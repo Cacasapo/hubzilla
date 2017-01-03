@@ -54,6 +54,7 @@ class Network extends \Zotlabs\Web\Controller {
 		$datequery  = ((x($_GET,'dend') && is_a_date_arg($_GET['dend'])) ? notags($_GET['dend']) : '');
 		$datequery2 = ((x($_GET,'dbegin') && is_a_date_arg($_GET['dbegin'])) ? notags($_GET['dbegin']) : '');
 		$nouveau    = ((x($_GET,'new')) ? intval($_GET['new']) : 0);
+		$static     = ((x($_GET,'static')) ? intval($_GET['static']) : 0); 
 		$gid        = ((x($_GET,'gid')) ? intval($_GET['gid']) : 0);
 		$category   = ((x($_REQUEST,'cat')) ? $_REQUEST['cat'] : '');
 		$hashtags   = ((x($_REQUEST,'tag')) ? $_REQUEST['tag'] : '');
@@ -61,6 +62,7 @@ class Network extends \Zotlabs\Web\Controller {
 	
 		$search = (($_GET['search']) ? $_GET['search'] : '');
 		if($search) {
+			$_GET['netsearch'] = escape_tags($search);
 			if(strpos($search,'@') === 0) {
 				$r = q("select abook_id from abook left join xchan on abook_xchan = xchan_hash where xchan_name = '%s' and abook_channel = %d limit 1",
 					dbesc(substr($search,1)),
@@ -138,7 +140,7 @@ class Network extends \Zotlabs\Web\Controller {
 			if($_GET['pf'] === '1')
 				$deftag = '@' . t('forum') . '+' . intval($cid) . '+';
 			else
-				$def_acl = array('allow_cid' => '<' . $r[0]['abook_xchan'] . '>');
+				$def_acl = [ 'allow_cid' => '<' . $r[0]['abook_xchan'] . '>', 'allow_gid' => '', 'deny_cid' => '', 'deny_gid' => '' ];
 		}
 	
 		if(! $update) {
@@ -159,7 +161,7 @@ class Network extends \Zotlabs\Web\Controller {
 				'allow_gid' => $channel['channel_allow_gid'], 
 				'deny_cid'  => $channel['channel_deny_cid'], 
 				'deny_gid'  => $channel['channel_deny_gid']
-			); 
+			);
 
 			$private_editing = ((($group || $cid) && (! intval($_GET['pf']))) ? true : false);
 	
@@ -176,7 +178,8 @@ class Network extends \Zotlabs\Web\Controller {
 				'profile_uid'      => local_channel(),
 				'editor_autocomplete' => true,
 				'bbco_autocomplete' => 'bbcode',
-				'bbcode' => true
+				'bbcode' => true,
+				'jotnets' => true
 			);
 			if($deftag)
 				$x['pretext'] = $deftag;
@@ -184,6 +187,8 @@ class Network extends \Zotlabs\Web\Controller {
 	
 			$status_editor = status_editor($a,$x);
 			$o .= $status_editor;
+
+			$static = channel_manual_conv_update(local_channel());
 	
 		}
 	
@@ -199,7 +204,7 @@ class Network extends \Zotlabs\Web\Controller {
 	
 		$sql_nets = '';
 	
-		$sql_extra = " AND `item`.`parent` IN ( SELECT `parent` FROM `item` WHERE item_thread_top = 1 $sql_options ) ";
+		$sql_extra = " AND item.parent IN ( SELECT parent FROM item WHERE item_thread_top = 1 $sql_options ) ";
 	
 		if($group) {
 			$contact_str = '';
@@ -293,6 +298,7 @@ class Network extends \Zotlabs\Web\Controller {
 				'$fh'      => (($firehose) ? $firehose : '0'),
 				'$nouveau' => (($nouveau) ? $nouveau : '0'),
 				'$wall'    => '0',
+				'$static'  => $static, 
 				'$list'    => ((x($_REQUEST,'list')) ? intval($_REQUEST['list']) : 0),
 				'$page'    => ((\App::$pager['page'] != 1) ? \App::$pager['page'] : 1),
 				'$search'  => (($search) ? $search : ''),
@@ -399,7 +405,8 @@ class Network extends \Zotlabs\Web\Controller {
 			$page_mode = 'client';
 	
 		$simple_update = (($update) ? " and item_unseen = 1 " : '');
-	
+
+
 		// This fixes a very subtle bug so I'd better explain it. You wake up in the morning or return after a day
 		// or three and look at your matrix page - after opening up your browser. The first page loads just as it
 		// should. All of a sudden a few seconds later, page 2 will get inserted at the beginning of the page
@@ -416,6 +423,9 @@ class Network extends \Zotlabs\Web\Controller {
 			$simple_update = " AND (( item_unseen = 1 AND item.changed > '" . datetime_convert('UTC','UTC',$_SESSION['loadtime']) . "' )  OR item.changed > '" . datetime_convert('UTC','UTC',$_SESSION['loadtime']) . "' ) ";
 		if($load)
 			$simple_update = '';
+
+		if($static && $simple_update)
+			$simple_update .= " and item_thread_top = 0 and author_xchan = '" . protect_sprintf(get_observer_hash()) . "' ";	
 	
 		if($nouveau && $load) {
 			// "New Item View" - show all items unthreaded in reverse created date order

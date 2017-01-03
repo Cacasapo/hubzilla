@@ -7,10 +7,10 @@ use Sabre\DAV;
 /**
  * @brief Provides a DAV frontend for the webbrowser.
  *
- * RedBrowser is a SabreDAV server-plugin to provide a view to the DAV storage
+ * Browser is a SabreDAV server-plugin to provide a view to the DAV storage
  * for the webbrowser.
  *
- * @extends \Sabre\DAV\Browser\Plugin
+ * @extends \\Sabre\\DAV\\Browser\\Plugin
  *
  * @link http://github.com/friendica/red
  * @license http://opensource.org/licenses/mit-license.php The MIT License (MIT)
@@ -19,13 +19,13 @@ class Browser extends DAV\Browser\Plugin {
 
 	/**
 	 * @see set_writeable()
-	 * @see \Sabre\DAV\Auth\Backend\BackendInterface
-	 * @var RedBasicAuth
+	 * @see \\Sabre\\DAV\\Auth\\Backend\\BackendInterface
+	 * @var BasicAuth $auth
 	 */
 	private $auth;
 
 	/**
-	 * @brief Constructor for RedBrowser class.
+	 * @brief Constructor for Browser class.
 	 *
 	 * $enablePost will be activated through set_writeable() in a later stage.
 	 * At the moment the write_storage permission is only valid for the whole
@@ -36,7 +36,7 @@ class Browser extends DAV\Browser\Plugin {
 	 * Disable assets with $enableAssets = false. Should get some thumbnail views
 	 * anyway.
 	 *
-	 * @param RedBasicAuth &$auth
+	 * @param BasicAuth &$auth
 	 */
 	public function __construct(&$auth) {
 		$this->auth = $auth;
@@ -95,14 +95,13 @@ class Browser extends DAV\Browser\Plugin {
 			'{DAV:}getlastmodified',
 			), 1);
 
-
 		$parent = $this->server->tree->getNodeForPath($path);
 
 		$parentpath = array();
-		// only show parent if not leaving /cloud/; TODO how to improve this? 
+		// only show parent if not leaving /cloud/; TODO how to improve this?
 		if ($path && $path != "cloud") {
-			list($parentUri) = \Sabre\HTTP\URLUtil::splitPath($path);
-			$fullPath = \Sabre\HTTP\URLUtil::encodePath($this->server->getBaseUri() . $parentUri);
+			list($parentUri) = \Sabre\Uri\split($path);
+			$fullPath = \Sabre\HTTP\encodePath($this->server->getBaseUri() . $parentUri);
 
 			$parentpath['icon'] = $this->enableAssets ? '<a href="' . $fullPath . '"><img src="' . $this->getAssetUrl('icons/parent' . $this->iconExtension) . '" width="24" alt="' . t('parent') . '"></a>' : '';
 			$parentpath['path'] = $fullPath;
@@ -114,9 +113,9 @@ class Browser extends DAV\Browser\Plugin {
 			$type = null;
 
 			// This is the current directory, we can skip it
-			if (rtrim($file['href'],'/') == $path) continue;
+			if (rtrim($file['href'], '/') == $path) continue;
 
-			list(, $name) = \Sabre\HTTP\URLUtil::splitPath($file['href']);
+			list(, $name) = \Sabre\Uri\split($file['href']);
 
 			if (isset($file[200]['{DAV:}resourcetype'])) {
 				$type = $file[200]['{DAV:}resourcetype']->getValue();
@@ -166,8 +165,7 @@ class Browser extends DAV\Browser\Plugin {
 			$size = isset($file[200]['{DAV:}getcontentlength']) ? (int)$file[200]['{DAV:}getcontentlength'] : '';
 			$lastmodified = ((isset($file[200]['{DAV:}getlastmodified'])) ? $file[200]['{DAV:}getlastmodified']->getTime()->format('Y-m-d H:i:s') : '');
 
-			$fullPath = \Sabre\HTTP\URLUtil::encodePath('/' . trim($this->server->getBaseUri() . ($path ? $path . '/' : '') . $name, '/'));
-
+			$fullPath = \Sabre\HTTP\encodePath('/' . trim($this->server->getBaseUri() . ($path ? $path . '/' : '') . $name, '/'));
 
 			$displayName = isset($file[200]['{DAV:}displayname']) ? $file[200]['{DAV:}displayname'] : $name;
 
@@ -248,8 +246,8 @@ class Browser extends DAV\Browser\Plugin {
 
 		$current_theme = \Zotlabs\Render\Theme::current();
 
-		$theme_info_file = "view/theme/" . $current_theme[0] . "/php/theme.php";
-		if (file_exists($theme_info_file)){
+		$theme_info_file = 'view/theme/' . $current_theme[0] . '/php/theme.php';
+		if (file_exists($theme_info_file)) {
 			require_once($theme_info_file);
 			if (function_exists(str_replace('-', '_', $current_theme[0]) . '_init')) {
 				$func = str_replace('-', '_', $current_theme[0]) . '_init';
@@ -264,10 +262,11 @@ class Browser extends DAV\Browser\Plugin {
 	 * @brief Creates a form to add new folders and upload files.
 	 *
 	 * @param \Sabre\DAV\INode $node
-	 * @param string &$output
+	 * @param[in,out] string &$output
+	 * @param string $path
 	 */
 	public function htmlActionsPanel(DAV\INode $node, &$output, $path) {
-		if (! $node instanceof DAV\ICollection)
+		if(! $node instanceof DAV\ICollection)
 			return;
 
 		// We also know fairly certain that if an object is a non-extended
@@ -287,7 +286,6 @@ class Browser extends DAV\Browser\Plugin {
 				$lockstate = (($acl->is_private()) ? 'lock' : 'unlock');
 
 				$aclselect = ((local_channel() == $this->auth->owner_id) ? populate_acl($channel_acl,false, \Zotlabs\Lib\PermissionDescription::fromGlobalPermission('view_storage')) : '');
-
 			}
 		}
 
@@ -297,12 +295,12 @@ class Browser extends DAV\Browser\Plugin {
 			intval($this->auth->channel_account_id)
 		);
 		$used = $r[0]['total'];
-		if ($used) {
+		if($used) {
 			$quotaDesc = t('You are using %1$s of your available file storage.');
 			$quotaDesc = sprintf($quotaDesc,
 				userReadableSize($used));
 		}
-		if ($limit && $used) {
+		if($limit && $used) {
 			$quotaDesc = t('You are using %1$s of %2$s available file storage. (%3$s&#37;)');
 			$quotaDesc = sprintf($quotaDesc,
 				userReadableSize($used),
@@ -316,7 +314,7 @@ class Browser extends DAV\Browser\Plugin {
 		$quota['desc'] = $quotaDesc;
 		$quota['warning'] = ((($limit) && ((round($used / $limit, 1) * 100) >= 90)) ? t('WARNING:') : ''); // 10485760 bytes = 100MB
 
-		$path = trim(str_replace('cloud/' . $this->auth->owner_nick, '', $path),'/');
+		$path = trim(str_replace('cloud/' . $this->auth->owner_nick, '', $path), '/');
 
 		$output .= replace_macros(get_markup_template('cloud_actionspanel.tpl'), array(
 				'$folder_header' => t('Create new folder'),
@@ -354,28 +352,28 @@ class Browser extends DAV\Browser\Plugin {
 	 *
 	 * Given the owner, the parent folder and and attach name get the attachment
 	 * hash.
-	 * 
+	 *
 	 * @param int $owner
 	 *  The owner_id
-	 * @param string $hash
+	 * @param string $parentHash
 	 *  The parent's folder hash
 	 * @param string $attachName
 	 *  The name of the attachment
 	 * @return string
 	 */
-
 	protected function findAttachHash($owner, $parentHash, $attachName) {
 		$r = q("SELECT hash FROM attach WHERE uid = %d AND folder = '%s' AND filename = '%s' ORDER BY edited DESC LIMIT 1",
 			intval($owner),
 			dbesc($parentHash),
 			dbesc($attachName)
 		);
-		$hash = "";
+		$hash = '';
 		if ($r) {
 			foreach ($r as $rr) {
 				$hash = $rr['hash'];
 			}
 		}
+
 		return $hash;
 	}
 

@@ -50,7 +50,7 @@ class Photos extends \Zotlabs\Web\Controller {
 	
 	
 	
-		function post() {
+	function post() {
 	
 		logger('mod-photos: photos_post: begin' , LOGGER_DEBUG);
 	
@@ -104,24 +104,6 @@ class Photos extends \Zotlabs\Web\Controller {
 				goaway(z_root() . '/' . $_SESSION['photo_return']);
 			}
 	
-	
-			/*
-			 * RENAME photo album
-			 */
-	
-			$newalbum = notags(trim($_REQUEST['albumname']));
-			if($newalbum != $album) {
-	
-				// @fixme - syncronise with DAV or disallow completely
-	
-				goaway(z_root() . '/' . $_SESSION['photo_return']);
-	
-	//			$x = photos_album_rename($page_owner_uid,$album,$newalbum);
-	//			if($x) {
-	//				$newurl = str_replace(bin2hex($album),bin2hex($newalbum),$_SESSION['photo_return']);
-	//				goaway(z_root() . '/' . $newurl);
-	//			}
-			}
 	
 			/*
 			 * DELETE photo album and all its photos
@@ -213,7 +195,7 @@ class Photos extends \Zotlabs\Web\Controller {
 			if(! $ob_hash)
 				goaway(z_root() . '/' . $_SESSION['photo_return']);
 	
-			$r = q("SELECT `id`, `resource_id` FROM `photo` WHERE ( xchan = '%s' or `uid` = %d ) AND `resource_id` = '%s' LIMIT 1",
+			$r = q("SELECT id, resource_id FROM photo WHERE ( xchan = '%s' or uid = %d ) AND resource_id = '%s' LIMIT 1",
 				dbesc($ob_hash),
 				intval(local_channel()),
 				dbesc(\App::$argv[2])
@@ -229,15 +211,25 @@ class Photos extends \Zotlabs\Web\Controller {
 	
 			goaway(z_root() . '/photos/' . \App::$data['channel']['channel_address'] . '/album/' . $_SESSION['album_return']);
 		}
-	
-	
-		if((\App::$argc > 2) && ((x($_POST,'desc') !== false) || (x($_POST,'newtag') !== false)) || (x($_POST,'albname') !== false)) {
-	
+
+		if((argc() > 2) && array_key_exists('move_to_album',$_POST)) {
+			$m = q("select folder from attach where hash = '%s' and uid = %d limit 1",
+				dbesc(argv(2)),
+				intval($page_owner_uid)
+			);
+			if(($m) && ($m[0]['folder'] != $_POST['move_to_album'])) {
+				attach_move($page_owner_uid,argv(2),$_POST['move_to_album']);			
+				if(! ($_POST['desc'] && $_POST['newtag']))
+					goaway(z_root() . '/' . $_SESSION['photo_return']);
+			}
+		}
+
+		if((argc() > 2) && ((x($_POST,'desc') !== false) || (x($_POST,'newtag') !== false))) {
 	
 			$desc        = ((x($_POST,'desc'))    ? notags(trim($_POST['desc']))    : '');
 			$rawtags     = ((x($_POST,'newtag'))  ? notags(trim($_POST['newtag']))  : '');
 			$item_id     = ((x($_POST,'item_id')) ? intval($_POST['item_id'])       : 0);
-			$albname     = ((x($_POST,'albname')) ? notags(trim($_POST['albname'])) : '');
+
 			$is_nsfw     = ((x($_POST,'adult'))   ? intval($_POST['adult'])         : 0);
 		
 			$acl->set_from_array($_POST);
@@ -245,20 +237,16 @@ class Photos extends \Zotlabs\Web\Controller {
 	
 			$resource_id = argv(2);
 	
-			if(! strlen($albname))
-				$albname = datetime_convert('UTC',date_default_timezone_get(),'now', 'Y');
-	
-	
 			if((x($_POST,'rotate') !== false) && 
 			   ( (intval($_POST['rotate']) == 1) || (intval($_POST['rotate']) == 2) )) {
 				logger('rotate');
 	
-				$r = q("select * from photo where `resource_id` = '%s' and uid = %d and imgscale = 0 limit 1",
+				$r = q("select * from photo where resource_id = '%s' and uid = %d and imgscale = 0 limit 1",
 					dbesc($resource_id),
 					intval($page_owner_uid)
 				);
 				if(count($r)) {
-					$d = (($r[0]['os_storage']) ? @file_get_contents($r[0]['content']) : dbunescbin($r[0]['content']));
+					$d = (($r[0]['os_storage']) ? @file_get_contents(dbunescbin($r[0]['content'])) : dbunescbin($r[0]['content']));
 					$ph = photo_factory($d, $r[0]['mimetype']);
 					if($ph->is_valid()) {
 						$rotate_deg = ( (intval($_POST['rotate']) == 1) ? 270 : 90 );
@@ -271,7 +259,7 @@ class Photos extends \Zotlabs\Web\Controller {
 							@file_put_contents($r[0]['content'],$ph->imageString());
 							$data = $r[0]['content'];
 							$fsize = @filesize($r[0]['content']);
-							q("update attach set filesize = %d where hash = '%s' and uid = %d limit 1",
+							q("update attach set filesize = %d where hash = '%s' and uid = %d",
 								intval($fsize),
 								dbesc($resource_id),
 								intval($page_owner_uid)
@@ -282,7 +270,7 @@ class Photos extends \Zotlabs\Web\Controller {
 							$fsize = strlen($data);
 						}
 	
-						$x = q("update photo set content = '%s', filesize = %d, height = %d, width = %d where `resource_id` = '%s' and uid = %d and imgscale = 0",
+						$x = q("update photo set content = '%s', filesize = %d, height = %d, width = %d where resource_id = '%s' and uid = %d and imgscale = 0",
 							dbescbin($data),
 							intval($fsize),
 							intval($height),
@@ -297,7 +285,7 @@ class Photos extends \Zotlabs\Web\Controller {
 						$width  = $ph->getWidth();
 						$height = $ph->getHeight();
 	
-						$x = q("update photo set content = '%s', height = %d, width = %d where `resource_id` = '%s' and uid = %d and imgscale = 1",
+						$x = q("update photo set content = '%s', height = %d, width = %d where resource_id = '%s' and uid = %d and imgscale = 1",
 							dbescbin($ph->imageString()),
 							intval($height),
 							intval($width),
@@ -312,7 +300,7 @@ class Photos extends \Zotlabs\Web\Controller {
 						$width  = $ph->getWidth();
 						$height = $ph->getHeight();
 	
-						$x = q("update photo set content = '%s', height = %d, width = %d where `resource_id` = '%s' and uid = %d and imgscale = 2",
+						$x = q("update photo set content = '%s', height = %d, width = %d where resource_id = '%s' and uid = %d and imgscale = 2",
 							dbescbin($ph->imageString()),
 							intval($height),
 							intval($width),
@@ -327,7 +315,7 @@ class Photos extends \Zotlabs\Web\Controller {
 						$width  = $ph->getWidth();
 						$height = $ph->getHeight();
 	
-						$x = q("update photo set content = '%s', height = %d, width = %d where `resource_id` = '%s' and uid = %d and imgscale = 3",
+						$x = q("update photo set content = '%s', height = %d, width = %d where resource_id = '%s' and uid = %d and imgscale = 3",
 							dbescbin($ph->imageString()),
 							intval($height),
 							intval($width),
@@ -345,7 +333,7 @@ class Photos extends \Zotlabs\Web\Controller {
 			if($p) {
 				$ext = $phototypes[$p[0]['mimetype']];
 	
-				$r = q("UPDATE `photo` SET `description` = '%s', `allow_cid` = '%s', `allow_gid` = '%s', `deny_cid` = '%s', `deny_gid` = '%s' WHERE `resource_id` = '%s' AND `uid` = %d",
+				$r = q("UPDATE photo SET description = '%s', allow_cid = '%s', allow_gid = '%s', deny_cid = '%s', deny_gid = '%s' WHERE resource_id = '%s' AND uid = %d",
 					dbesc($desc),
 					dbesc($perm['allow_cid']),
 					dbesc($perm['allow_gid']),
@@ -379,7 +367,7 @@ class Photos extends \Zotlabs\Web\Controller {
 			}
 	
 			if($item_id) {
-				$r = q("SELECT * FROM `item` WHERE `id` = %d AND `uid` = %d LIMIT 1",
+				$r = q("SELECT * FROM item WHERE id = %d AND uid = %d LIMIT 1",
 					intval($item_id),
 					intval($page_owner_uid)
 				);
@@ -464,14 +452,15 @@ class Photos extends \Zotlabs\Web\Controller {
 				}
 	
 			}
-		
-			goaway(z_root() . '/' . $_SESSION['photo_return']);
-			return; // NOTREACHED
-	
+
 			$sync = attach_export_data(\App::$data['channel'],$resource_id);
 	
 			if($sync) 
 				build_sync_packet($page_owner_uid,array('file' => array($sync)));
+		
+			goaway(z_root() . '/' . $_SESSION['photo_return']);
+			return; // NOTREACHED
+	
 	
 		}
 	
@@ -706,8 +695,8 @@ class Photos extends \Zotlabs\Web\Controller {
 			\App::$page['htmlhead'] .= "\r\n" . '<link rel="alternate" type="application/json+oembed" href="' . z_root() . '/oep?f=&url=' . urlencode(z_root() . '/' . \App::$cmd) . '" title="oembed" />' . "\r\n";
 	
 	
-			$r = q("SELECT `resource_id`, max(`imgscale`) AS `imgscale` FROM `photo` WHERE `uid` = %d AND `album` = '%s' 
-				AND `imgscale` <= 4 and photo_usage IN ( %d, %d ) and is_nsfw = %d $sql_extra GROUP BY `resource_id`",
+			$r = q("SELECT resource_id, max(imgscale) AS imgscale FROM photo WHERE uid = %d AND album = '%s' 
+				AND imgscale <= 4 and photo_usage IN ( %d, %d ) and is_nsfw = %d $sql_extra GROUP BY resource_id",
 				intval($owner_uid),
 				dbesc($album),
 				intval(PHOTO_NORMAL),
@@ -854,8 +843,8 @@ class Photos extends \Zotlabs\Web\Controller {
 	
 			// fetch image, item containing image, then comments
 	
-			$ph = q("SELECT id,aid,uid,xchan,resource_id,created,edited,title,`description`,album,filename,mimetype,height,width,filesize,imgscale,photo_usage,is_nsfw,allow_cid,allow_gid,deny_cid,deny_gid FROM `photo` WHERE `uid` = %d AND `resource_id` = '%s' 
-				$sql_extra ORDER BY `imgscale` ASC ",
+			$ph = q("SELECT id,aid,uid,xchan,resource_id,created,edited,title,description,album,filename,mimetype,height,width,filesize,imgscale,photo_usage,is_nsfw,allow_cid,allow_gid,deny_cid,deny_gid FROM photo WHERE uid = %d AND resource_id = '%s' 
+				$sql_extra ORDER BY imgscale ASC ",
 				intval($owner_uid),
 				dbesc($datum)
 			);
@@ -886,8 +875,8 @@ class Photos extends \Zotlabs\Web\Controller {
 				$order = 'DESC';
 	
 	
-			$prvnxt = q("SELECT `resource_id` FROM `photo` WHERE `album` = '%s' AND `uid` = %d AND `imgscale` = 0 
-				$sql_extra ORDER BY `created` $order ",
+			$prvnxt = q("SELECT resource_id FROM photo WHERE album = '%s' AND uid = %d AND imgscale = 0 
+				$sql_extra ORDER BY created $order ",
 				dbesc($ph[0]['album']),
 				intval($owner_uid)
 			); 
@@ -1004,7 +993,7 @@ class Photos extends \Zotlabs\Web\Controller {
 				}
 	
 				if((local_channel()) && (local_channel() == $link_item['uid'])) {
-					q("UPDATE `item` SET item_unseen = 0 WHERE parent = %d and uid = %d and item_unseen = 1",
+					q("UPDATE item SET item_unseen = 0 WHERE parent = %d and uid = %d and item_unseen = 1",
 						intval($link_item['parent']),
 						intval(local_channel())
 					);
@@ -1023,12 +1012,22 @@ class Photos extends \Zotlabs\Web\Controller {
 
 			$edit = null;
 			if($can_post) {
+
+				$m = q("select folder from attach where hash = '%s' and uid = %d limit 1",
+					dbesc($ph[0]['resource_id']),
+					intval($ph[0]['uid'])
+				);
+				if($m)
+					$album_hash = $m[0]['folder'];
+					
 				$album_e = $ph[0]['album'];
 				$caption_e = $ph[0]['description'];
 				$aclselect_e = (($_is_owner) ? populate_acl($ph[0], true, \Zotlabs\Lib\PermissionDescription::fromGlobalPermission('view_storage')) : '');
 				$albums = ((array_key_exists('albums', \App::$data)) ? \App::$data['albums'] : photos_albums_list(\App::$data['channel'],\App::$data['observer']));
 	
 				$_SESSION['album_return'] = bin2hex($ph[0]['album']);
+
+				$folder_list = attach_folder_select_list($ph[0]['uid']);
 	
 				$edit = array(
 					'edit' => t('Edit photo'),
@@ -1037,6 +1036,7 @@ class Photos extends \Zotlabs\Web\Controller {
 					'rotateccw' => t('Rotate CCW (left)'),
 					'albums' => $albums['albums'],
 					'album' => $album_e,
+					'album_select' => [ 'move_to_album', t('Move photo to album'), $album_hash, '', $folder_list ],
 					'newalbum_label' => t('Enter a new album name'),
 					'newalbum_placeholder' => t('or select an existing one (doubleclick)'),
 					'nickname' => \App::$data['channel']['channel_address'],
@@ -1283,8 +1283,8 @@ class Photos extends \Zotlabs\Web\Controller {
 			\App::$page['htmlhead'] .= "\r\n" . '<link rel="alternate" type="application/json+oembed" href="' . z_root() . '/oep?f=&url=' . urlencode(z_root() . '/' . \App::$cmd) . '" title="oembed" />' . "\r\n";
 	
 	
-		$r = q("SELECT `resource_id`, max(`imgscale`) AS `imgscale` FROM `photo` WHERE `uid` = %d 
-			and photo_usage in ( %d, %d ) and is_nsfw = %d $sql_extra GROUP BY `resource_id`",
+		$r = q("SELECT resource_id, max(imgscale) AS imgscale FROM photo WHERE uid = %d 
+			and photo_usage in ( %d, %d ) and is_nsfw = %d $sql_extra GROUP BY resource_id",
 			intval(\App::$data['channel']['channel_id']),
 			intval(PHOTO_NORMAL),
 			intval(PHOTO_PROFILE),

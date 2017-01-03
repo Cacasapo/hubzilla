@@ -66,7 +66,7 @@ class Acl extends \Zotlabs\Web\Controller {
 			// These queries require permission checking. We'll create a simple array of xchan_hash for those with
 			// the requisite permissions which we can check against. 
 
-			$x = q("select xchan from abconfig where chan = %d and cat = 'their_perms' and k = '%s' and v = 1",
+			$x = q("select xchan from abconfig where chan = %d and cat = 'their_perms' and k = '%s' and v = '1'",
 				intval(local_channel()),
 				dbesc(($type === 'm') ? 'post_mail' : 'tag_deliver')
 			);
@@ -77,7 +77,7 @@ class Acl extends \Zotlabs\Web\Controller {
 
 
 		if($search) {
-			$sql_extra = " AND `name` LIKE " . protect_sprintf( "'%" . dbesc($search) . "%'" ) . " ";
+			$sql_extra = " AND groups.gname LIKE " . protect_sprintf( "'%" . dbesc($search) . "%'" ) . " ";
 			$sql_extra2 = "AND ( xchan_name LIKE " . protect_sprintf( "'%" . dbesc($search) . "%'" ) . " OR xchan_addr LIKE " . protect_sprintf( "'%" . dbesc($search) . ((strpos($search,'@') === false) ? "%@%'"  : "%'")) . ") ";
 	
 			// This horrible mess is needed because position also returns 0 if nothing is found. 
@@ -105,9 +105,9 @@ class Acl extends \Zotlabs\Web\Controller {
 		if($type == '' || $type == 'g') {
 	
 			$r = q("SELECT groups.id, groups.hash, groups.gname
-					FROM groups,group_member 
+					FROM groups, group_member 
 					WHERE groups.deleted = 0 AND groups.uid = %d 
-					AND group_member.gid=groups.id
+					AND group_member.gid = groups.id
 					$sql_extra
 					GROUP BY groups.id
 					ORDER BY groups.gname 
